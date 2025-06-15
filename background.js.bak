@@ -1,0 +1,838 @@
+console.log('Background script running.');
+
+/**
+ * 타입별(3시간/일간/주간/월간) 카운트 계산
+ * @param {Array} timestamps - 타임스탬프 배열
+ * @param {string} type - "threeHour", "daily", "weekly", "monthly" 중 하나
+ * @returns {number} 해당 기간 내 카운트
+ */
+function getCountByType(timestamps, type) {
+  if (!timestamps || !Array.isArray(timestamps)) return 0;
+  
+  const now = Date.now();
+  let cutoffTime;
+  
+  switch (type) {
+    case 'threeHour':
+      cutoffTime = now - (3 * 60 * 60 * 1000); // 3시간
+      break;
+    case 'daily':
+      // 당일 00:00 KST 기준
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      cutoffTime = today.getTime();
+      break;
+    case 'weekly':
+      // 이번 주 월요일 00:00 KST 기준
+      const thisMonday = new Date();
+      thisMonday.setHours(0, 0, 0, 0);
+      // 월요일이 0이 아니라 1이므로 일요일은 0, 월요일은 1...
+      const daysSinceMonday = (thisMonday.getDay() + 6) % 7; // 월요일을 기준으로 날짜 조정
+      thisMonday.setDate(thisMonday.getDate() - daysSinceMonday);
+      cutoffTime = thisMonday.getTime();
+      break;
+    case 'monthly':
+      // 이번 달 1일 00:00 KST 기준
+      const thisMonth = new Date();
+      thisMonth.setDate(1);
+      thisMonth.setHours(0, 0, 0, 0);
+      cutoffTime = thisMonth.getTime();
+      break;
+    default:
+      cutoffTime = 0;
+  }
+  
+  // 해당 기간 이후의 타임스탬프만 필터링해서 개수 반환
+  return timestamps.filter(timestamp => timestamp >= cutoffTime).length;
+}
+
+// 공통: 다음 리셋 시각 계산 (KST 자정 기준)
+function getNextResetTimestamp() {
+    const now = new Date();
+    const kstMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 15, 0, 0));
+    if (now.getTime() >= kstMidnight.getTime()) {
+        kstMidnight.setUTCDate(kstMidnight.getUTCDate() + 1);
+    }
+    return kstMidnight.getTime();
+}
+
+// 딥리서치 전용: 월간 리셋 시각 계산 (매월 1일 KST 00:00)
+function getNextMonthlyResetTimestamp() {
+    const now = new Date();
+    // 다음 달 1일 자정(로컬 시간 KST 기준)
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0);
+    return next.getTime();
+}
+
+// 임시 요청/응답 데이터 저장소 (requestId 기준)
+const requestCache = {};
+
+// conversation/init API 요청 감시 - 요청 단계
+chrome.webRequest.onBeforeRequest.addListener(
+    (details) => {
+        // 모든 요청 URL 로깅 (디버깅용)
+        console.log('요청 감지됨:', details.url);
+        
+        // /backend-api/conversation/init 요청 감지
+        if (!details.url || !details.url.includes('/backend-api/conversation')) return;
+
+        console.log('감지: conversation/ 요청', details.url);
+
+        // 요청 ID와 URL, 본문 저장
+        requestCache[details.requestId] = { 
+            url: details.url,
+            timestamp: Date.now()
+        };
+        
+        // 요청 본문이 있는 경우 저장
+        console.log(details)
+        if (details.requestBody && details.requestBody.raw && details.requestBody.raw[0]) {
+            requestCache[details.requestId].body = details.requestBody.raw[0].bytes;
+            console.log('요청 본문 저장됨:', details.requestId);
+            //해독 시도
+                const rawBytes = requestCache[details.requestId].body;
+                const bodyText = decodeURIComponent(
+                    String.fromCharCode.apply(null, new Uint8Array(rawBytes))
+                );
+                console.log('요청 본문 디코딩:', bodyText);
+        }
+    },
+    {
+        urls: [
+            "https://*.openai.com/backend-api/conversation/init*",
+            "https://chat.openai.com/backend-api/conversation/init*",
+            "https://chatgpt.com/backend-api/conversation"
+        ]
+    },
+    ["requestBody", "extraHeaders"]
+);
+
+
+// 메시지 카운트용 conversation 요청 감시
+// [버그 수정] 아래 리스너는 주석 처리됨 (updateModelUsageWithWorkspace로 대체)
+// 이유: 같은 요청에 대해 두 번 카운팅되는 문제 해결
+/*
+chrome.webRequest.onBeforeRequest.addListener(
+    (details) => {
+        if (!details.method || details.method !== 'POST' || !details.requestBody || !details.requestBody.raw) return;
+        
+        try {
+            // 요청 본문 파싱
+            const rawBytes = details.requestBody.raw[0].bytes;
+            const bodyText = decodeURIComponent(
+                String.fromCharCode.apply(null, new Uint8Array(rawBytes))
+            );
+            const body = JSON.parse(bodyText);
+            
+            if (body && body.model) {
+                const modelName = body.model;
+                console.log('대화 요청 감지, 모델:', modelName);
+                
+                // 모델별 사용량 카운팅 함수 호출
+                updateModelUsage(modelName);
+            }
+        } catch (e) {
+            console.warn('대화 요청 본문 파싱 실패:', e);
+        }
+    },
+    {
+        urls: [
+            "https://*.openai.com/backend-api/conversation*",
+            "https://chatgpt.com/backend-api/conversation*"
+        ]
+    },
+    ["requestBody"]
+);
+*/
+
+// 모델별 사용량 카운트 증가 함수
+function updateModelUsage(modelName) {
+    if (!modelName) return;
+    
+    // storage에서 현재 데이터 로드
+    chrome.storage.local.get(['usageCounts', 'limits'], data => {
+        const usageCounts = data.usageCounts || {};
+        const limits = data.limits || {};
+        
+        // 해당 모델의 카운트 객체 가져오거나 초기화
+        const modelUsage = usageCounts[modelName] || { daily: 0, monthly: 0, threeHour: 0 };
+        
+        // 현재 시간과 날짜/월 정보
+        const now = new Date();
+        const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
+        const month = today.substring(0, 7); // YYYY-MM
+        const threeHoursAgo = now.getTime() - (3 * 60 * 60 * 1000);
+        
+        // 마지막 리셋 시간 확인 (없으면 초기화)
+        if (!usageCounts._lastReset) {
+            usageCounts._lastReset = {
+                daily: today,
+                monthly: month,
+                threeHour: now.getTime()
+            };
+        }
+        
+        // 일별 리셋 확인
+        if (usageCounts._lastReset.daily !== today) {
+            // 모든 모델의 일별 카운트 초기화
+            Object.keys(usageCounts).forEach(model => {
+                if (model !== '_lastReset' && usageCounts[model]) {
+                    usageCounts[model].daily = 0;
+                }
+            });
+            usageCounts._lastReset.daily = today;
+        }
+        
+        // 월별 리셋 확인
+        if (usageCounts._lastReset.monthly !== month) {
+            // 모든 모델의 월별 카운트 초기화
+            Object.keys(usageCounts).forEach(model => {
+                if (model !== '_lastReset' && usageCounts[model]) {
+                    usageCounts[model].monthly = 0;
+                }
+            });
+            usageCounts._lastReset.monthly = month;
+        }
+        
+        // 3시간 리셋 확인 (GPT-4 등에서 사용)
+        // threeHour는 타임스탬프 배열로 관리하여 롤링 윈도우 방식으로 계산
+        if (!modelUsage.threeHourTimestamps) {
+            modelUsage.threeHourTimestamps = [];
+        }
+        
+        // 새 요청 시간 추가
+        modelUsage.threeHourTimestamps.push(now.getTime());
+        
+        // 3시간 이전 요청들 제거
+        modelUsage.threeHourTimestamps = modelUsage.threeHourTimestamps.filter(
+            timestamp => timestamp > threeHoursAgo
+        );
+        
+        // 현재 3시간 내 요청 수
+        modelUsage.threeHour = modelUsage.threeHourTimestamps.length;
+        
+        // 일별/월별 카운터 증가
+        modelUsage.daily++;
+        modelUsage.monthly++;
+        
+        // 업데이트된 사용량 저장
+        usageCounts[modelName] = modelUsage;
+        
+        // 현재 한도 상태 점검
+        const modelLimit = limits[modelName];
+        if (modelLimit) {
+            const limitType = modelLimit.type; // 'daily', 'monthly', 'threeHour'
+            const limitValue = modelLimit.value;
+            const currentUsage = modelUsage[limitType] || 0;
+            
+            // 한도 임박 (90% 이상 사용) 체크
+            if (limitValue && currentUsage >= limitValue * 0.9) {
+                // 브라우저 알림 표시
+                chrome.notifications.create({
+                    type: 'basic',
+                    iconUrl: 'icon-128.png', // 아이콘이 있어야 함
+                    title: `${modelName} 사용량 경고`,
+                    message: `현재 ${currentUsage}/${limitValue} (${Math.round(currentUsage/limitValue*100)}%) 사용하였습니다.`,
+                    priority: 1
+                });
+            }
+        }
+        
+        // storage에 저장
+        chrome.storage.local.set({ usageCounts });
+        console.log(`모델 ${modelName} 사용량 업데이트:`, modelUsage);
+    });
+}
+
+// Deep Research API 응답 모니터링을 위한 webRequest 리스너
+chrome.webRequest.onResponseStarted.addListener(
+    (details) => {
+        // URL이 존재하는지 먼저 확인
+        if (!details.url) {
+            return;
+        }
+        
+    // 기존 헤더 방식도 유지 (다른 API에서 정보가 있을 수 있음)
+    },
+    {
+        urls: [
+            "https://chat.openai.com/backend-api/*",
+            "https://chatgpt.com/backend-api/*",
+            "https://chat.openai.com/*deep*",
+            "https://chat.openai.com/*research*",
+            "https://chatgpt.com/*deep*",
+            "https://chatgpt.com/*research*"
+        ]
+    },
+    ["responseHeaders"]
+);
+
+
+// 기본 모델별 한도 (예시)
+// 플랜별 모델 한도 설정
+const defaultLimits = {
+    free: {
+        "gpt-4-1-mini": { type: "unlimited", value: null },
+        "gpt-4o": { type: "daily", value: 10 }, // 제한적이므로 추정값
+        "o4-mini": { type: "daily", value: 10 }, // 제한적이므로 추정값
+        "deep-research": { type: "monthly", value: 5 }
+    },
+    plus: {
+        "gpt-4-1-mini": { type: "unlimited", value: null },
+        "gpt-4o": { type: "threeHour", value: 80 },
+        "gpt-4-1": { type: "threeHour", value: 80 },
+        "gpt-4-5": { type: "weekly", value: 50 },
+        "o3": { type: "weekly", value: 100 },
+        "o4-mini": { type: "daily", value: 300 },
+        "o4-mini-high": { type: "daily", value: 100 },
+        "deep-research": { type: "monthly", value: 25 }
+    },
+    pro: {
+        "gpt-4-1-mini": { type: "unlimited", value: null },
+        "gpt-4o": { type: "unlimited", value: null },
+        "gpt-4-1": { type: "unlimited", value: null },
+        "gpt-4-5": { type: "unlimited", value: null },
+        "o3": { type: "unlimited", value: null },
+        "o4-mini": { type: "unlimited", value: null },
+        "o4-mini-high": { type: "unlimited", value: null },
+        "o1-pro": { type: "unlimited", value: null },
+        "deep-research": { type: "monthly", value: 250 }
+    }
+};
+
+// 현재 사용자 플랜 (초기값: free, 나중에 설정 UI에서 변경 가능)
+let currentPlan = "free";
+
+// storage 초기화
+chrome.runtime.onInstalled.addListener(() => {
+    const initialDr = {
+        remaining: '-',
+        total: defaultLimits[currentPlan]['deep-research']?.value || '-',
+        resetAt: getNextMonthlyResetTimestamp()
+    };
+    chrome.storage.local.set({ 
+        usageCounts: {}, 
+        limits: defaultLimits[currentPlan],
+        currentPlan: currentPlan,
+        deepResearch: initialDr
+    });
+    scheduleResets();
+});
+
+// 리셋 알람들 등록
+function scheduleResets() {
+    // 매일 자정 KST 기준 리셋
+    const now = new Date();
+    const kstMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 15, 0, 0));
+    if (now.getTime() >= kstMidnight.getTime()) {
+        kstMidnight.setUTCDate(kstMidnight.getUTCDate() + 1);
+    }
+    chrome.alarms.create('dailyReset', { when: kstMidnight.getTime(), periodInMinutes: 24 * 60 });
+    
+    // 3시간마다 리셋 (현재 시각부터 3시간 후)
+    chrome.alarms.create('threeHourReset', { when: Date.now() + (3 * 60 * 60 * 1000), periodInMinutes: 3 * 60 });
+    
+    // 매주 월요일 00:00 KST 리셋
+    const nextMonday = new Date(kstMidnight);
+    const daysUntilMonday = (1 + 7 - nextMonday.getDay()) % 7;
+    if (daysUntilMonday === 0 && now.getTime() >= kstMidnight.getTime()) {
+        nextMonday.setUTCDate(nextMonday.getUTCDate() + 7);
+    } else {
+        nextMonday.setUTCDate(nextMonday.getUTCDate() + daysUntilMonday);
+    }
+    chrome.alarms.create('weeklyReset', { when: nextMonday.getTime(), periodInMinutes: 7 * 24 * 60 });
+    
+    // 매월 1일 00:00 KST 리셋
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0);
+    chrome.alarms.create('monthlyReset', { when: nextMonth.getTime() });
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+    // 배열 기반 타임스탬프 저장 시스템에서는 데이터를 리셋할 필요가 없음
+    // 각 요청의 타임스탬프를 저장하고 getCountByType 함수에서 동적으로 계산
+    
+    // 단, 데이터 정리 알람은 처리
+    if (alarm.name === 'cleanupData') {
+        cleanupOldData();
+    }
+    
+    // 배지 업데이트 (타임스탬프 기반으로 계산)
+    chrome.storage.local.get('usageCounts', data => {
+        updateBadge(data.usageCounts || {});
+    });
+    
+    // 월간 리셋 알람 재설정 (모델별 타임스탬프 배열에 기반하여 카운트하므로 직접적인 리셋은 필요없음)
+    if (alarm.name === 'monthlyReset') {
+        const now = new Date();
+        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0);
+        chrome.alarms.create('monthlyReset', { when: nextMonth.getTime() });
+    }
+});
+
+// 메시지 카운트 업데이트
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // 1. Request/fetch Hook에서 캡처한 conversation/init 요청 처리
+    if (message.type === 'init_request_captured' && message.data) {
+        console.log('📨 Content script로부터 conversation/init 데이터 수신:', message.data);
+        
+        try {
+            const { url, body } = message.data;
+            
+            // Deep Research 정보 추출 및 저장
+            if (body && body.limits_progress) {
+                const deepResearchLimit = body.limits_progress.find(
+                    limit => limit.feature_name === 'deep_research'
+                );
+                
+                if (deepResearchLimit) {
+                    const remaining = deepResearchLimit.remaining;
+                    const resetTime = deepResearchLimit.reset_after;
+
+                    console.log('💡 Deep Research 정보 추출 성공:', { remaining, resetTime });
+
+                    // storage 업데이트
+                    chrome.storage.local.get(['deepResearch', 'currentPlan'], data => {
+                        const dr = data.deepResearch || {};
+                        const plan = data.currentPlan || currentPlan;
+
+                        dr.remaining = remaining;
+                        // reset_after가 ISO8601 문자열("2025-06-20T05:20:09.983812+00:00")일 때도 정상 처리
+                        dr.resetAt = new Date(resetTime).getTime();
+
+                        const def = defaultLimits[plan] && defaultLimits[plan]['deep-research'];
+                        dr.total = def && def.value != null ? def.value : dr.total || '?';
+
+                        chrome.storage.local.set({ deepResearch: dr });
+                        console.log('💾 Deep Research 정보 저장 완료:', dr);
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('❌ conversation/init 데이터 처리 실패:', error);
+        }
+    }
+    
+    // 2. Fetch Hook에서 캡처한 Deep Research 정보 직접 처리
+    if (message.type === 'deep_research_info' && message.info) {
+        console.log('🔍 Content script로부터 Deep Research 정보 수신:', message.info);
+        
+        try {
+            const { remaining, reset_after } = message.info;
+            
+            // storage 업데이트
+            chrome.storage.local.get(['deepResearch', 'currentPlan'], data => {
+                const dr = data.deepResearch || {};
+                const plan = data.currentPlan || currentPlan;
+                
+                dr.remaining = remaining;
+                dr.resetAt = new Date(reset_after).getTime();
+                
+                const def = defaultLimits[plan] && defaultLimits[plan]['deep-research'];
+                dr.total = def && def.value != null ? def.value : dr.total || '?';
+                
+                chrome.storage.local.set({ deepResearch: dr });
+                console.log('💾 Deep Research 정보 저장 완료 (fetch hook):', dr);
+                
+                // 배지 업데이트 (선택적)
+                if (remaining <= 10) {  // 적은 횟수일 경우 배지에 표시
+                    chrome.action.setBadgeText({ text: `DR:${remaining}` });
+                    chrome.action.setBadgeBackgroundColor({ color: remaining <= 5 ? '#FF0000' : '#FFA500' });
+                }
+            });
+        } catch (error) {
+            console.error('❌ Deep Research 정보 처리 실패:', error);
+        }
+    }
+      if (message.type === 'messageCount' && message.model) {
+        console.log('📨 Content script로부터 메시지 카운트 수신:', message.model);
+        chrome.storage.local.get(['usageCounts', 'limits', 'currentPlan'], data => {
+            const counts = data.usageCounts || {};
+            const limits = data.limits || defaultLimits[data.currentPlan || 'free'];
+            const model = message.model;
+            
+            // 타임스탬프 배열 기반 저장소
+            if (!counts[model]) {
+                counts[model] = { timestamps: [] };
+            }
+            
+            if (!counts[model].timestamps) {
+                counts[model].timestamps = [];
+            }
+            
+            // 현재 타임스탬프 추가
+            const now = Date.now();
+            counts[model].timestamps.push(now);
+            
+            // 모델의 제한 타입에 따라 해당 카운터 확인
+            if (limits[model]) {
+                const limitType = limits[model].type;
+                const limitValue = limits[model].value;
+                
+                // unlimited가 아닌 경우에만 한도 확인
+                if (limitType !== 'unlimited') {
+                    chrome.storage.local.set({ usageCounts: counts }, () => {
+                        updateBadge(counts);
+                        
+                        // 타임스탬프 배열 기반으로 현재 카운트 계산
+                        const currentCount = getCountByType(counts[model].timestamps, limitType);
+                        
+                        // 한도 임박 알림 (80% 도달 시)
+                        if (limitValue && currentCount >= limitValue * 0.8) {
+                            chrome.notifications.create({
+                                type: 'basic',
+                                iconUrl: 'icons/icon48.png',
+                                title: '사용량 경고',
+                                message: `${model} 요청이 ${limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 80%에 도달했습니다. (${currentCount}/${limitValue})`
+                            });
+                        }
+                    });
+                }
+            }
+        });
+    }
+    
+    // Deep Research 남은 횟수 저장
+    if (message.type === 'deepResearchRemaining') {
+        chrome.storage.local.get(['deepResearch', 'currentPlan'], data => {
+            const dr = data.deepResearch || {};
+            // 남은 횟수 업데이트
+            dr.remaining = message.remaining;
+            // 플랜에 따른 전체 한도 설정
+            const plan = data.currentPlan || currentPlan;
+            const def = defaultLimits[plan] && defaultLimits[plan]['deep-research'];
+            dr.total = (def && def.value != null) ? def.value : dr.total;
+            // init API body에서 전달된 resetTime(seconds or ISO) 처리
+            if (message.resetTime != null) {
+                const rt = message.resetTime;
+                dr.resetAt = new Date(rt).getTime();
+            }
+            chrome.storage.local.set({ deepResearch: dr }, () => {
+                sendResponse({ status: 'ok' });
+            });
+        });
+        return true;
+    }
+
+    // 플랜 변경
+    if (message.type === 'changePlan' && message.plan) {
+        currentPlan = message.plan;
+        const newLimits = defaultLimits[currentPlan] || {};
+        // deepResearch: 기존 remaining 값 유지하고 total만 업데이트
+        chrome.storage.local.get('deepResearch', data => {
+            const oldDr = data.deepResearch || {};
+            const dr = {
+                remaining: oldDr.remaining ?? '-',
+                total: newLimits['deep-research']?.value ?? '-',
+                resetAt: oldDr.resetAt ?? getNextMonthlyResetTimestamp()
+            };
+            chrome.storage.local.set({ limits: newLimits, currentPlan, deepResearch: dr }, () => {
+                sendResponse({ status: 'ok' });
+            });
+        });
+        return true;
+    }
+
+    return true;
+});
+
+// 3단계 webRequest 체인을 위한 임시 저장소
+const requestDataStore = {};
+
+// 1단계: onBeforeRequest - 요청 바디 저장
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    console.log('[Background] onBeforeRequest:', details.url);
+    
+    // 허용된 도메인 체크
+    const allowedDomains = ['chat.openai.com', 'chatgpt.com'];
+    const initiator = details.initiator || '';
+    const isAllowedDomain = allowedDomains.some(domain => initiator.includes(domain));
+    
+    if (!isAllowedDomain) return;
+    
+    if (details.requestBody && details.requestBody.raw && details.requestBody.raw[0]) {
+      const bodyBytes = details.requestBody.raw[0].bytes;
+      requestDataStore[details.requestId] = { 
+        body: bodyBytes,
+        url: details.url,
+        timestamp: Date.now()
+      };
+      console.log('[Background] 요청 바디 저장됨:', details.requestId);
+    }
+  },
+  { 
+    urls: [
+      "*://chat.openai.com/backend-api/conversation*",
+      "*://chatgpt.com/backend-api/conversation*",
+      "*://chatgpt.com/backend-alt/conversation*"
+    ] 
+  },
+  ["requestBody"]
+);
+
+// 2단계: onSendHeaders - 요청 헤더 저장 (workspace_id 추출용)
+chrome.webRequest.onSendHeaders.addListener(
+  (details) => {
+    console.log('[Background] onSendHeaders:', details.url);
+    
+    const allowedDomains = ['chat.openai.com', 'chatgpt.com'];
+    const initiator = details.initiator || '';
+    const isAllowedDomain = allowedDomains.some(domain => initiator.includes(domain));
+    
+    if (!isAllowedDomain) return;
+    
+    const storedData = requestDataStore[details.requestId];
+    if (storedData) {
+      storedData.headers = details.requestHeaders;
+      console.log('[Background] 요청 헤더 저장됨:', details.requestId);
+    }
+  },
+  { 
+    urls: [
+      "*://chat.openai.com/backend-api/conversation*",
+      "*://chatgpt.com/backend-api/conversation*",
+      "*://chatgpt.com/backend-alt/conversation*"
+    ] 
+  },
+  ["requestHeaders", "extraHeaders"]
+);
+
+// 3단계: onResponseStarted - 응답 시작 시 모델 정보 파싱
+chrome.webRequest.onResponseStarted.addListener(
+  async (details) => {
+    console.log('[Background] onResponseStarted (conversation):', details.url);
+    
+    const allowedDomains = ['chat.openai.com', 'chatgpt.com'];
+    const initiator = details.initiator || '';
+    const isAllowedDomain = allowedDomains.some(domain => initiator.includes(domain));
+    
+    if (!isAllowedDomain) return;
+    
+    const storedData = requestDataStore[details.requestId];
+    if (!storedData) return;
+    
+    // 메모리 누수 방지를 위해 즉시 삭제
+    delete requestDataStore[details.requestId];
+    
+    try {
+      // 요청 바디 디코딩
+      const decoder = new TextDecoder('utf-8');
+      const requestBodyText = decoder.decode(new Uint8Array(storedData.body));
+      const requestData = JSON.parse(requestBodyText);
+      
+      console.log('[Background] 요청 데이터 파싱됨:', requestData);
+      
+      // 모델 정보 추출
+      let modelName = requestData.model;
+      
+      // auto 모델 처리 (실제 사용된 모델로 보정)
+      if (modelName === 'auto') {
+        // 실제 응답에서 사용된 모델을 확인하거나 기본값 설정
+        modelName = 'gpt-4o'; // 기본값
+      }
+      
+      console.log('[Background] 사용된 모델:', modelName);
+      
+      // workspace_id 추출 (쿠키에서)
+      let workspaceId = 'default';
+      if (storedData.headers) {
+        const cookieHeader = storedData.headers.find(h => h.name.toLowerCase() === 'cookie');
+        if (cookieHeader) {
+          // workspace_id 쿠키 파싱
+          const workspaceMatch = cookieHeader.value.match(/workspace_id=([^;]+)/);
+          if (workspaceMatch) {
+            workspaceId = workspaceMatch[1];
+          }
+        }
+      }
+      
+      console.log('[Background] Workspace ID:', workspaceId);
+      
+      // 모델 사용량 업데이트
+      await updateModelUsageWithWorkspace(modelName, workspaceId);
+      
+    } catch (error) {
+      console.error('[Background] 요청 데이터 파싱 에러:', error);
+    }
+  },
+  { 
+    urls: [
+      "*://chat.openai.com/backend-api/conversation*",
+      "*://chatgpt.com/backend-api/conversation*",
+      "*://chatgpt.com/backend-alt/conversation*"
+    ] 
+  },
+  ["responseHeaders"]
+);
+
+// workspace별 모델 사용량 업데이트 함수
+async function updateModelUsageWithWorkspace(model, workspaceId) {
+  try {
+    const data = await chrome.storage.local.get(['usageCounts', 'limits', 'currentPlan']);
+    const counts = data.usageCounts || {};
+    const limits = data.limits || defaultLimits[data.currentPlan || 'free'];
+    
+    // workspace별로 카운트 관리 - 새 배열 기반 시스템
+    if (!counts[model]) {
+      counts[model] = {
+        // 타임스탬프 배열로 모든 요청 시간 저장
+        timestamps: []
+      };
+    }
+
+    // timestamps 배열이 없으면 초기화
+    if (!counts[model].timestamps) {
+      counts[model].timestamps = [];
+    }
+    
+    // 현재 타임스탬프 추가
+    const now = Date.now();
+    counts[model].timestamps.push(now);
+
+    // 모델의 제한 타입에 따라 현재 사용량 계산
+    if (limits[model]) {
+      const limitType = limits[model].type;
+      const limitValue = limits[model].value;
+      
+      // unlimited가 아닌 경우에만 사용량 확인
+      if (limitType !== 'unlimited') {
+        // 현재 카운트 계산 - 타임스탬프 배열 기반
+        const currentCount = getCountByType(counts[model].timestamps, limitType);
+        
+        await chrome.storage.local.set({ usageCounts: counts });
+        updateBadge(counts);
+        
+        // 한도 임박 알림 (80% 도달 시)
+        if (limitValue && currentCount >= limitValue * 0.8) {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/icon48.png',
+            title: '사용량 경고',
+            message: `${model} 요청이 ${limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 80%에 도달했습니다. (${currentCount}/${limitValue})`
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[Background] 모델 사용량 업데이트 에러:', error);
+  }
+}
+
+// Deep Research init 응답을 파싱하기 위해 background에서 직접 fetch
+// 기존 onResponseStarted 내 init 처리 제거 후 아래 로직으로 대체
+chrome.webRequest.onResponseStarted.addListener(
+  (details) => {
+    // URL이 존재하는지 먼저 확인
+    if (!details.url) {
+      return;
+    }
+        
+    // 기존 헤더 방식도 유지 (다른 API에서 정보가 있을 수 있음)
+    },
+    {
+        urls: [
+            "https://chat.openai.com/backend-api/*",
+            "https://chatgpt.com/backend-api/*",
+            "https://chat.openai.com/*deep*",
+            "https://chat.openai.com/*research*",
+            "https://chatgpt.com/*deep*",
+            "https://chatgpt.com/*research*"
+        ]
+    },
+    ["responseHeaders"]
+);
+
+/**
+ * 타입별(3시간/일간/주간/월간) 카운트 계산
+ * @param {Array} timestamps - 타임스탬프 배열
+ * @param {string} type - "threeHour", "daily", "weekly", "monthly" 중 하나
+ * @returns {number} 해당 기간 내 카운트
+ */
+function getCountByType(timestamps, type) {
+  if (!timestamps || !Array.isArray(timestamps)) return 0;
+  
+  const now = Date.now();
+  let cutoffTime;
+  
+  switch (type) {
+    case 'threeHour':
+      cutoffTime = now - (3 * 60 * 60 * 1000); // 3시간
+      break;
+    case 'daily':
+      // 당일 00:00 KST 기준
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      cutoffTime = today.getTime();
+      break;
+    case 'weekly':
+      // 이번 주 월요일 00:00 KST 기준
+      const thisMonday = new Date();
+      thisMonday.setHours(0, 0, 0, 0);
+      // 월요일이 0이 아니라 1이므로 일요일은 0, 월요일은 1...
+      const daysSinceMonday = (thisMonday.getDay() + 6) % 7; // 월요일을 기준으로 날짜 조정
+      thisMonday.setDate(thisMonday.getDate() - daysSinceMonday);
+      cutoffTime = thisMonday.getTime();
+      break;
+    case 'monthly':
+      // 이번 달 1일 00:00 KST 기준
+      const thisMonth = new Date();
+      thisMonth.setDate(1);
+      thisMonth.setHours(0, 0, 0, 0);
+      cutoffTime = thisMonth.getTime();
+      break;
+    default:
+      cutoffTime = 0;
+  }
+  
+  // 해당 기간 이후의 타임스탬프만 필터링해서 개수 반환
+  return timestamps.filter(timestamp => timestamp >= cutoffTime).length;
+}
+
+// 뱃지 텍스트 업데이트 (전체 일일 합계)
+function updateBadge(counts) {
+    let totalDaily = 0;
+    for (const model in counts) {
+        if (model !== '_lastReset' && counts[model].timestamps) {
+            // 각 모델의 일간 카운트 계산 (타임스탬프 배열 기반)
+            totalDaily += getCountByType(counts[model].timestamps, 'daily');
+        }
+    }
+    chrome.action.setBadgeText({ text: totalDaily > 0 ? String(totalDaily) : '' });
+    chrome.action.setBadgeBackgroundColor({ color: '#0078D4' });
+}
+
+// 정기적인 데이터 정리 함수 - 오래된 타임스탬프 제거 (6개월 이상)
+function cleanupOldData() {
+    chrome.storage.local.get('usageCounts', data => {
+        const counts = data.usageCounts || {};
+        const sixMonthsAgo = Date.now() - (180 * 24 * 60 * 60 * 1000); // 약 6개월
+        
+        let changed = false;
+        
+        // 모든 모델에 대해 처리
+        for (const model in counts) {
+            if (model === '_lastReset') continue;
+            
+            if (counts[model].timestamps && Array.isArray(counts[model].timestamps)) {
+                // 6개월 이전 타임스탬프는 제거
+                const newTimestamps = counts[model].timestamps.filter(ts => ts >= sixMonthsAgo);
+                
+                if (newTimestamps.length !== counts[model].timestamps.length) {
+                    counts[model].timestamps = newTimestamps;
+                    changed = true;
+                }
+            }
+        }
+        
+        // 변경된 경우에만 저장
+        if (changed) {
+            chrome.storage.local.set({ usageCounts: counts });
+        }
+    });
+}
+
+// 초기 뱃지 업데이트
+chrome.storage.local.get('usageCounts', data => updateBadge(data.usageCounts || {}));
+
+// 하루에 한 번 오래된 데이터 정리
+chrome.alarms.create('cleanupData', { periodInMinutes: 24 * 60 }); // 24시간마다

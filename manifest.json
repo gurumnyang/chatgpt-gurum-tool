@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png",
+    "512": "icons/icon512.png"
+  },
+  "name": "ChatGPT 보조 도구",
+  "version": "1.0",
+  "description": "ChatGPT 사용량 모니터링, 대화 내보내기, 컨텍스트 추적 등을 지원하는 보조 도구",  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },  "content_scripts": [
+    {
+      "matches": [
+        "*://chat.openai.com/*",
+        "*://chatgpt.com/*",
+        "*://*.openai.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],  "web_accessible_resources": [
+    {
+      "resources": ["request-hook.js", "fetch-hook.js", "thirdParty/tiktoken.bundle.js", "dist/tiktoken.bundle.js", "token-calculator.js"],
+      "matches": [
+        "*://chat.openai.com/*",
+        "*://chatgpt.com/*",
+        "https://*.openai.com/*"
+      ]
+    }
+  ],"permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "downloads",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*.openai.com/*",
+    "https://chatgpt.com/*"
+  ]
+}

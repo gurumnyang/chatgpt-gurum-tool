@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "압축해제된 확장 프로그램 폴더 열기",
+      "type": "shell",
+      "command": "explorer .",
+      "problemMatcher": [],
+      "group": "build"
+    }
+  ]
+}

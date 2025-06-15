@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>  <meta charset="UTF-8">  <title>ChatGPT 보조 도구</title>  <!-- Turndown for HTML to Markdown conversion -->
+  <script src="thirdParty/turndown.js"></script>
+  <style>    body {
+      min-width: 320px;
+      min-height: 400px;
+      font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background-color: #f8f9fa;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e9ecef;
+    }
+    .header h2 {
+      margin: 0;
+      color: #343a40;
+      font-size: 18px;
+    }
+    .tab-container {
+      display: flex;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #dee2e6;
+    }
+    .tab {
+      flex: 1;
+      padding: 8px 12px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      border-bottom: 2px solid transparent;
+    }
+    .tab.active {
+      color: #0078d4;
+      border-bottom-color: #0078d4;
+      font-weight: 600;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .model-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      margin: 8px 0;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .model-name {
+      font-weight: 600;
+      color: #495057;
+    }
+    .model-usage {
+      text-align: right;
+    }
+    .usage-count {
+      font-size: 16px;
+      font-weight: 700;
+      color: #28a745;
+    }
+    .usage-limit {
+      font-size: 12px;
+      color: #6c757d;
+    }
+    .usage-warning {
+      color: #ffc107;
+    }
+    .usage-danger {
+      color: #dc3545;
+    }
+    .progress-bar {
+      width: 60px;
+      height: 4px;
+      background: #e9ecef;
+      border-radius: 2px;
+      margin-top: 4px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #28a745;
+      transition: width 0.3s ease;
+    }
+    .progress-fill.warning {
+      background: #ffc107;
+    }
+    .progress-fill.danger {
+      background: #dc3545;
+    }
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn-primary {
+      background: #0078d4;
+      color: white;
+    }
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }    .deep-research {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 8px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .deep-research-title {
+      font-weight: 600;
+      color: #495057;
+      margin-bottom: 8px;
+    }
+    .deep-research-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .remaining-count {
+      font-size: 18px;
+      font-weight: 700;
+      color: #6f42c1;
+    }
+    .remaining-count.warning {
+      color: #ffc107;
+    }
+    .remaining-count.danger {
+      color: #dc3545;
+    }
+    .total-limit {
+      font-size: 12px;
+      color: #6c757d;
+    }
+    .reset-time {
+      font-size: 11px;
+      color: #17a2b8;
+      font-weight: 500;
+    }
+    .data-source {
+      font-size: 10px;
+      color: #6c757d;
+      font-style: italic;
+    }
+    .context-info {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 8px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>ChatGPT 보조 도구</h2>
+  </div>
+  
+  <div class="tab-container">
+    <button class="tab active" data-tab="usage">사용량</button>
+    <button class="tab" data-tab="export">내보내기</button>
+    <button class="tab" data-tab="settings">설정</button>
+  </div>
+    <div id="usage-tab" class="tab-content active">
+    <div class="deep-research">
+      <div class="deep-research-title">Deep Research 남은 횟수</div>
+      <div id="deepResearchCount">-</div>
+    </div>
+    
+    <div class="context-info">
+      <div class="deep-research-title">현재 컨텍스트 크기</div>
+      <div id="contextSize">-</div>
+    </div>
+    
+    <div id="modelUsageList">
+      <!-- 모델별 사용량이 동적으로 추가됩니다 -->
+    </div>
+  </div>
+  
+  <div id="export-tab" class="tab-content">
+    <div class="action-buttons">
+      <button class="btn btn-primary" id="exportMarkdown">Markdown</button>
+      <button class="btn btn-primary" id="exportJSON">JSON</button>
+    </div>    <div class="action-buttons">
+      <button class="btn btn-secondary" id="exportTXT">텍스트</button>
+      <button class="btn btn-secondary" id="copyClipboard">클립보드 복사</button>
+    </div>
+  </div>
+  
+  <div id="settings-tab" class="tab-content">
+    <div class="model-item">
+      <span class="model-name">현재 플랜</span>
+      <select id="planSelect">
+        <option value="free">Free</option>
+        <option value="plus">Plus</option>
+        <option value="pro">Pro</option>
+      </select>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
