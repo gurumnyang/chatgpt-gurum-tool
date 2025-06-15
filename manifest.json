@@ -11,6 +11,9 @@
   "description": "ChatGPT 사용량 모니터링, 대화 내보내기, 컨텍스트 추적 등을 지원하는 보조 도구",  "action": {
     "default_popup": "popup.html",
     "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
     }
   },
   "background": {
