@@ -163,6 +163,15 @@ window.addEventListener('message', event => {
       info: data.info
     });
   }
+  // 3. 메시지 카운트 처리 (request 후킹에서 전송)
+  if (data && data.type === 'CHATGPT_TOOL_MESSAGE_COUNT') {
+    console.log('📊 메시지 카운트 정보 받음, background로 전달:', data.model);
+    safeSendMessage({
+      type: 'messageCount',
+      model: data.model,
+      timestamp: data.timestamp || Date.now()
+    });
+  }
   // 참고: 토큰 계산 결과는 이제 calculateContextSize 내에서 직접 처리됨
 });
 

@@ -111,10 +111,43 @@
         // 오류 발생 시 원본 fetch로 폴백
         return originalFetch.apply(this, arguments);
       }
+    } else if(url.includes('/backend-api/conversation') || url.includes('/backend-api/f/conversation')) {
+      // 일반 대화 메시지 감지 및 모델 카운트 정보 추출
+      console.log("📡 [Fetch Hook] 대화 메시지 요청 감지됨:", url);
+      if (init && init.body) {
+        const body = init.body;
+        try {
+          if (typeof body === 'string') {
+            const bodyObj = JSON.parse(body);
+            if (bodyObj && bodyObj.model) {
+              window.postMessage({
+                type: 'CHATGPT_TOOL_MESSAGE_COUNT',
+                model: bodyObj.model,
+                timestamp: Date.now()
+              }, '*');
+            }
+          } else if (body instanceof Blob) {
+            const clonedBlob = body.slice();
+            clonedBlob.text().then(text => {
+              try {
+                const bodyObj = JSON.parse(text);
+                if (bodyObj && bodyObj.model) {
+                  window.postMessage({
+                    type: 'CHATGPT_TOOL_MESSAGE_COUNT',
+                    model: bodyObj.model,
+                    timestamp: Date.now()
+                  }, '*');
+                }
+              } catch(e) {}
+            });
+          }
+        } catch(e) {}
+      }
+      return originalFetch.apply(this, arguments);
+    } else {
+      // conversation/init 요청이 아닌 경우 원본 fetch 함수 호출
+      return originalFetch.apply(this, arguments);
     }
-    
-    // conversation/init 요청이 아닌 경우 원본 fetch 함수 호출
-    return originalFetch.apply(this, arguments);
   };
 
   console.log('✅ [fetch 후킹 성공] API 요청 모니터링 중...');
