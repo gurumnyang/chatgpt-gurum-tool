@@ -245,7 +245,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'exportConversation') {
         const conv = extractConversation(message.startId, message.endId);
         sendResponse({ conv });
-      }      if (message.type === 'getContextSize') {
+        return true;
+      }
+      
+      if (message.type === 'getContextSize') {
         calculateContextSize()
           .then(size => {
             sendResponse({ size });
@@ -379,38 +382,51 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     measureInterval: 3000,  // 측정 간격 (ms)
     lastResult: null,       // 마지막 측정 결과 캐싱
     messageCountAtLastMeasure: 0, // 마지막 측정 시 메시지 수
-    inProgress: false       // 측정 진행 중 여부
+    inProgress: false,      // 측정 진행 중 여부
+    contextLimits: {
+      free: 8192,           // Free 플랜: 8K 토큰
+      plus: 32768,          // Plus 플랜: 32K 토큰
+      pro: 131072           // Pro 플랜: 128K 토큰
+    }
   };
 
   function calculateContextSize() {
     return new Promise((resolve) => {
       const now = Date.now();
       const conversation = extractConversation();
-      // 최적화: 이전 결과 재활용 조건 체크
-      // 1. 마지막 측정으로부터 일정 시간이 지나지 않았고
-      // 2. 측정 이후 메시지 수가 변하지 않았으면
-      // 3. 캐시된 마지막 결과가 있으면
-      if (
-        now - window.CONTEXT_MEASUREMENT.lastMeasureTime < window.CONTEXT_MEASUREMENT.measureInterval &&
-        conversation.length === window.CONTEXT_MEASUREMENT.messageCountAtLastMeasure &&
-        window.CONTEXT_MEASUREMENT.lastResult
-      ) {
-        // console.log('🔄 캐시된 토큰 측정 결과 사용');
-        return resolve(window.CONTEXT_MEASUREMENT.lastResult);
-      }
+
+      // 플랜 정보 가져오기 (storage에서)
+      chrome.storage.local.get('currentPlan', data => {
+        const currentPlan = data.currentPlan || 'free';
+        
+        // 최적화: 이전 결과 재활용 조건 체크
+        // 1. 마지막 측정으로부터 일정 시간이 지나지 않았고
+        // 2. 측정 이후 메시지 수가 변하지 않았으면
+        // 3. 캐시된 마지막 결과가 있으면
+        if (
+          now - window.CONTEXT_MEASUREMENT.lastMeasureTime < window.CONTEXT_MEASUREMENT.measureInterval &&
+          conversation.length === window.CONTEXT_MEASUREMENT.messageCountAtLastMeasure &&
+          window.CONTEXT_MEASUREMENT.lastResult
+        ) {
+          // 플랜이 변경되었을 수 있으므로, 한도 정보만 업데이트
+          const cachedResult = {...window.CONTEXT_MEASUREMENT.lastResult};
+          cachedResult.contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
+          // console.log('🔄 캐시된 토큰 측정 결과 사용');
+          return resolve(cachedResult);
+        }
       
-      // 중복 측정 방지
-      if (window.CONTEXT_MEASUREMENT.inProgress) {
-        // console.log('⌛ 이미 측정 진행 중, 잠시후 재시도하세요');
-        return resolve(window.CONTEXT_MEASUREMENT.lastResult || { 
-          chars: 0, 
-          tokens: 0, 
-          text: '',
-          pending: true 
-        });
-      }
-      
-      window.CONTEXT_MEASUREMENT.inProgress = true;
+        // 중복 측정 방지
+        if (window.CONTEXT_MEASUREMENT.inProgress) {
+          // console.log('⌛ 이미 측정 진행 중, 잠시후 재시도하세요');
+          return resolve(window.CONTEXT_MEASUREMENT.lastResult || { 
+            chars: 0, 
+            tokens: 0, 
+            text: '',
+            pending: true 
+          });
+        }
+        
+        window.CONTEXT_MEASUREMENT.inProgress = true;
       
       // 대화 내용 추출 
       let text = '';
@@ -424,7 +440,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // 응답 대기 타임아웃 (1.5초 후 기본값 반환)
       const timeoutId = setTimeout(() => {
         console.log('⚠️ 토큰 계산 타임아웃, 근사치 사용');
-        const result = { chars, tokens: Math.ceil(chars * 0.25), text };
+        const contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
+        const result = { 
+          chars, 
+          tokens: Math.ceil(chars * 0.25), 
+          text,
+          contextLimit: contextLimit
+        };
         
         // 결과 캐싱
         window.CONTEXT_MEASUREMENT.lastResult = result;
@@ -446,11 +468,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           clearTimeout(timeoutId);
           
           console.log('✅ 정확한 토큰 계산값 수신:', data.tokens);
+          const contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
           const result = {
             chars: data.chars,
             tokens: data.tokens,
             text: text,
-            success: data.success
+            success: data.success,
+            contextLimit: contextLimit
           };
             // 결과 캐싱
           window.CONTEXT_MEASUREMENT.lastResult = result;
@@ -472,6 +496,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         model: 'gpt-4o',
         chars: chars
       }, '*');
+      });
     });
   }
 

@@ -131,21 +131,19 @@ async function renderUsage() {
       return;
     }
     
-    // 모델별 최대 컨텍스트 크기
-    const model = Object.keys(limits)[0] || 'gpt-4o';
-    const modelLimit = {
-      'gpt-4o': 128000,
-      'gpt-4o-mini': 128000,
-      'gpt-4': 8192,
-      'gpt-3.5-turbo': 4096
-    }[model] || 128000;
+    // 현재 플랜에 따른 컨텍스트 한도 사용
+    const contextLimit = size.contextLimit || {
+      'free': 8192,     // 8K
+      'plus': 32768,    // 32K
+      'pro': 131072     // 128K
+    }[plan] || 8192;    // 기본값은 Free 플랜
     
     // 토큰 수와 문자 수 표시
     const tokens = size.tokens || Math.ceil(size.chars * 0.25);
     const chars = size.chars;
     
     // 사용률 계산 (토큰 기준)
-    const usageRatio = tokens / modelLimit;
+    const usageRatio = tokens / contextLimit;
     let statusClass = '';
     if (usageRatio >= 0.9) statusClass = 'danger';
     else if (usageRatio >= 0.7) statusClass = 'warning';
@@ -166,7 +164,7 @@ async function renderUsage() {
         <div class="progress-fill ${statusClass}" style="width: ${Math.min(100, usageRatio * 100)}%"></div>
       </div>
       <div style="font-size: 10px; color: #6c757d; text-align: right; margin-top: 4px;">
-        최대 ${modelLimit.toLocaleString()} 토큰
+        최대 ${contextLimit.toLocaleString()} 토큰
       </div>
     `;
   });
