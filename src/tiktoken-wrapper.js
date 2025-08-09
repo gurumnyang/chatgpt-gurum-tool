@@ -13,7 +13,11 @@ const MODEL_TOKEN_LIMITS = {
   'gpt-4-32k': 32768,
   'gpt-4-turbo': 128000,
   'gpt-4o': 128000,
-  'gpt-4o-mini': 128000
+  'gpt-4o-mini': 128000,
+  // 신규 gpt-5 계열 (보수적 기본치: 128K)
+  'gpt-5': 128000,
+  'gpt-5-thinking': 128000,
+  'gpt-5-pro': 128000
 };
 
 /**
