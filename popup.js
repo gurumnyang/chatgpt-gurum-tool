@@ -60,8 +60,32 @@ async function renderUsage() {
   // 모델별 사용량 리스트
   const modelUsageList = document.getElementById('modelUsageList');
   modelUsageList.innerHTML = '';
-  Object.keys(limits).forEach(model => {
-    if (model === 'deep-research') return;
+  // gpt-5 계열 우선 정렬 (그 외는 알파벳 정렬)
+  const gpt5Rank = { 'gpt-5': 0, 'gpt-5-thinking': 1, 'gpt-5-pro': 2 };
+  const sortedModels = Object.keys(limits)
+    .filter(m => m !== 'deep-research')
+    .sort((a, b) => {
+      const a5 = a.startsWith('gpt-5');
+      const b5 = b.startsWith('gpt-5');
+      const a4o = a === 'gpt-4o';
+      const b4o = b === 'gpt-4o';
+
+      // gpt-5 계열 최상단
+      if (a5 && !b5) return -1;
+      if (!a5 && b5) return 1;
+      if (a5 && b5) {
+        const ra = (a in gpt5Rank) ? gpt5Rank[a] : 999;
+        const rb = (b in gpt5Rank) ? gpt5Rank[b] : 999;
+        if (ra !== rb) return ra - rb;
+        return a.localeCompare(b);
+      }
+      // 그 다음 gpt-4o 고정
+      if (a4o && !b4o) return -1;
+      if (!a4o && b4o) return 1;
+      return a.localeCompare(b);
+    });
+
+  sortedModels.forEach(model => {
     
     const usage = usageCounts[model] || { timestamps: [] };
     const limit = limits[model];
@@ -240,7 +264,8 @@ function exportConversation(format) {
           });
           filename = `chat_export_${timestamp}.json`;
           break;
-        }        case 'txt': {
+        }        
+        case 'txt': {
           let txt = '';
           conv.forEach(msg => {
             txt += `[${msg.sender}]\n${msg.content}\n\n`;
