@@ -386,6 +386,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     contextLimits: {
       free: 8192,           // Free 플랜: 8K 토큰
       plus: 32768,          // Plus 플랜: 32K 토큰
+      team: 32768,          // Team 플랜: Plus와 동일 기본 32K로 가정
       pro: 131072           // Pro 플랜: 128K 토큰
     }
   };

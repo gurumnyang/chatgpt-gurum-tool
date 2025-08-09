@@ -178,33 +178,93 @@ function updateModelUsage(modelName) {
 // 플랜별 모델 한도 설정
 const defaultLimits = {
     free: {
+        // 기존 모델들
         "gpt-4-1-mini": { type: "unlimited", value: null },
         "gpt-4o": { type: "daily", value: 10 }, // 제한적이므로 추정값
         "o4-mini": { type: "daily", value: 10 }, // 제한적이므로 추정값
+        // 신규 모델
+        "gpt-5": { type: "threeHour", value: 10 },
+        "gpt-5-thinking": { type: "daily", value: 1 },
+        // Deep Research
         "deep-research": { type: "monthly", value: 5 }
     },
     plus: {
+        // 기존 모델들
         "gpt-4-1-mini": { type: "unlimited", value: null },
         "gpt-4o": { type: "threeHour", value: 80 },
         "gpt-4-1": { type: "threeHour", value: 80 },
         "gpt-4-5": { type: "weekly", value: 50 },
         "o3": { type: "weekly", value: 100 },
         "o4-mini": { type: "daily", value: 300 },
-        "o4-mini-high": { type: "daily", value: 100 },
+        // 신규 모델
+        "gpt-5": { type: "threeHour", value: 80 },
+        "gpt-5-thinking": { type: "weekly", value: 200 },
+        // Deep Research
+        "deep-research": { type: "monthly", value: 25 }
+    },
+    team: {
+        // 팀 플랜: gpt-5는 3시간 80, gpt-5-thinking은 주당 200
+        "gpt-5": { type: "threeHour", value: 80 },
+        "gpt-5-thinking": { type: "weekly", value: 200 },
+        // 팀 플랜의 Deep Research (명시 없음 → Plus와 동일 기본값 사용)
         "deep-research": { type: "monthly", value: 25 }
     },
     pro: {
+        // 기존 모델들
         "gpt-4-1-mini": { type: "unlimited", value: null },
         "gpt-4o": { type: "unlimited", value: null },
         "gpt-4-1": { type: "unlimited", value: null },
         "gpt-4-5": { type: "unlimited", value: null },
         "o3": { type: "unlimited", value: null },
         "o4-mini": { type: "unlimited", value: null },
-        "o4-mini-high": { type: "unlimited", value: null },
         "o3-pro": { type: "unlimited", value: null },
+        // 신규 모델 (Pro 무제한)
+        "gpt-5": { type: "unlimited", value: null },
+        "gpt-5-thinking": { type: "unlimited", value: null }, // gpt-5-thinking은 Pro만 무제한
+        "gpt-5-pro": { type: "unlimited", value: null },
+        // Deep Research
         "deep-research": { type: "monthly", value: 250 }
     }
 };
+
+// o4-mini-high -> o4-mini 마이그레이션 (사용량/한도) 유틸
+async function migrateO4MiniHigh() {
+    try {
+        const data = await chrome.storage.local.get(['usageCounts', 'limits']);
+        const counts = data.usageCounts || {};
+        const limits = data.limits || {};
+
+        // 사용량 합치기
+        if (counts['o4-mini-high']) {
+            const src = counts['o4-mini-high'];
+            const dst = counts['o4-mini'] || {};
+
+            // timestamps 기반 합치기
+            if (src.timestamps || dst.timestamps) {
+                const a = Array.isArray(dst.timestamps) ? dst.timestamps : [];
+                const b = Array.isArray(src.timestamps) ? src.timestamps : [];
+                const merged = Array.from(new Set([...(a || []), ...(b || [])])).sort();
+                dst.timestamps = merged;
+            }
+            // 레거시 카운터 합치기
+            dst.daily = (dst.daily || 0) + (src.daily || 0);
+            dst.monthly = (dst.monthly || 0) + (src.monthly || 0);
+            dst.threeHour = (dst.threeHour || 0) + (src.threeHour || 0);
+
+            counts['o4-mini'] = dst;
+            delete counts['o4-mini-high'];
+        }
+
+        // limits에서 제거
+        if (limits['o4-mini-high']) {
+            delete limits['o4-mini-high'];
+        }
+
+        await chrome.storage.local.set({ usageCounts: counts, limits });
+    } catch (e) {
+        console.warn('o4-mini-high 마이그레이션 실패:', e);
+    }
+}
 
 // 현재 사용자 플랜 (초기값: free, 나중에 설정 UI에서 변경 가능)
 let currentPlan = "free";
@@ -225,6 +285,13 @@ chrome.runtime.onInstalled.addListener(() => {
     
     // 하루에 한 번 오래된 데이터 정리 알람만 설정
     chrome.alarms.create('cleanupData', { periodInMinutes: 24 * 60 });
+        // o4-mini-high 데이터 마이그레이션 수행
+        migrateO4MiniHigh();
+});
+
+// 브라우저 시작 시에도 마이그레이션 보장
+chrome.runtime.onStartup.addListener(() => {
+    migrateO4MiniHigh();
 });
 
 // 데이터 정리 알람은 직접 onInstalled에서 등록
