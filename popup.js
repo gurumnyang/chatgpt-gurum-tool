@@ -38,19 +38,19 @@ async function renderUsage() {
     
     switch (type) {
       case 'threeHour':
-      cutoffTime = now - (3 * 60 * 60 * 1000); // 3시간 전
-      break;
+        cutoffTime = now - (3 * 60 * 60 * 1000); // 3시간 전
+        break;
       case 'daily':
-      cutoffTime = now - (24 * 60 * 60 * 1000); // 24시간(1일) 전
-      break;
+        cutoffTime = now - (24 * 60 * 60 * 1000); // 24시간(1일) 전
+        break;
       case 'weekly':
-      cutoffTime = now - (7 * 24 * 60 * 60 * 1000); // 7일 전
-      break;
+        cutoffTime = now - (7 * 24 * 60 * 60 * 1000); // 7일 전
+        break;
       case 'monthly':
-      cutoffTime = now - (30 * 24 * 60 * 60 * 1000); // 30일 전
-      break;
+        cutoffTime = now - (30 * 24 * 60 * 60 * 1000); // 30일 전
+        break;
       default:
-      cutoffTime = 0;
+        cutoffTime = 0;
     }
     
     // 해당 기간 이후의 타임스탬프만 필터링해서 개수 반환
@@ -117,6 +117,7 @@ async function renderUsage() {
     const labelType = {
         daily: '일간',
         monthly: '월간',
+        weekly: '주간',
         threeHour: '3시간',
         unlimited: '무제한'
     }[type] || '일간';
@@ -159,6 +160,7 @@ async function renderUsage() {
     const contextLimit = size.contextLimit || {
       'free': 8192,     // 8K
       'plus': 32768,    // 32K
+      'team': 32768,    // 32K
       'pro': 131072     // 128K
     }[plan] || 8192;    // 기본값은 Free 플랜
     

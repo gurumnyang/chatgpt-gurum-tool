@@ -157,7 +157,7 @@ function updateModelUsage(modelName) {
                 // 브라우저 알림 표시
                 chrome.notifications.create({
                     type: 'basic',
-                    iconUrl: 'icon-128.png', // 아이콘이 있어야 함
+                    iconUrl: 'icons/icon128.png',
                     title: `${modelName} 사용량 경고`,
                     message: `현재 ${currentUsage}/${limitValue} (${Math.round(currentUsage/limitValue*100)}%) 사용하였습니다.`,
                     priority: 1
@@ -178,11 +178,7 @@ function updateModelUsage(modelName) {
 // 플랜별 모델 한도 설정
 const defaultLimits = {
     free: {
-        // 기존 모델들
-        "gpt-4-1-mini": { type: "unlimited", value: null },
-        "gpt-4o": { type: "daily", value: 10 }, // 제한적이므로 추정값
-        "o4-mini": { type: "daily", value: 10 }, // 제한적이므로 추정값
-        // 신규 모델
+    // 무료는 gpt-4o, o4-mini 사용 불가
         "gpt-5": { type: "threeHour", value: 10 },
         "gpt-5-thinking": { type: "daily", value: 1 },
         // Deep Research
@@ -190,28 +186,33 @@ const defaultLimits = {
     },
     plus: {
         // 기존 모델들
-        "gpt-4-1-mini": { type: "unlimited", value: null },
         "gpt-4o": { type: "threeHour", value: 80 },
         "gpt-4-1": { type: "threeHour", value: 80 },
-        "gpt-4-5": { type: "weekly", value: 50 },
         "o3": { type: "weekly", value: 100 },
         "o4-mini": { type: "daily", value: 300 },
         // 신규 모델
-        "gpt-5": { type: "threeHour", value: 80 },
-        "gpt-5-thinking": { type: "weekly", value: 200 },
+    // 정책 변경: GPT-5 3시간 160, GPT-5-thinking 주 3000
+    "gpt-5": { type: "threeHour", value: 160 },
+    "gpt-5-thinking": { type: "weekly", value: 3000 },
         // Deep Research
         "deep-research": { type: "monthly", value: 25 }
     },
     team: {
-        // 팀 플랜: gpt-5는 3시간 80, gpt-5-thinking은 주당 200
-        "gpt-5": { type: "threeHour", value: 80 },
-        "gpt-5-thinking": { type: "weekly", value: 200 },
-        // 팀 플랜의 Deep Research (명시 없음 → Plus와 동일 기본값 사용)
+        // Plus와 동일한 라인업 + 다음 오버라이드 적용
+        // 오버라이드:
+    // - gpt-5 3시간 160
+        // - gpt-4o 160/3시간
+        // - gpt-4-1 160/3시간
+        "gpt-4o": { type: "threeHour", value: 160 },
+        "gpt-4-1": { type: "threeHour", value: 160 },
+        "o3": { type: "weekly", value: 100 },
+        "o4-mini": { type: "daily", value: 300 },
+    "gpt-5": { type: "threeHour", value: 160 },
+    "gpt-5-thinking": { type: "weekly", value: 3000 },
         "deep-research": { type: "monthly", value: 25 }
     },
     pro: {
         // 기존 모델들
-        "gpt-4-1-mini": { type: "unlimited", value: null },
         "gpt-4o": { type: "unlimited", value: null },
         "gpt-4-1": { type: "unlimited", value: null },
         "gpt-4-5": { type: "unlimited", value: null },
@@ -226,6 +227,46 @@ const defaultLimits = {
         "deep-research": { type: "monthly", value: 250 }
     }
 };
+
+// 정책 변경(2025-08): 모델/플랜 한도 마이그레이션
+async function migratePolicy2025_08() {
+    try {
+        const data = await chrome.storage.local.get(['usageCounts', 'limits', 'currentPlan']);
+        const counts = data.usageCounts || {};
+        let limits = data.limits || {};
+        const plan = data.currentPlan || currentPlan || 'free';
+
+        // 1) 완전 삭제: gpt-4-1-mini
+        if (counts['gpt-4-1-mini']) delete counts['gpt-4-1-mini'];
+        if (limits['gpt-4-1-mini']) delete limits['gpt-4-1-mini'];
+
+        // 2) GPT-4-5는 Pro 전용: Plus/Team 저장된 limits에서 제거
+        if ((plan === 'plus' || plan === 'team') && limits['gpt-4-5']) {
+            delete limits['gpt-4-5'];
+        }
+
+        // 3) 플랜별 정책 보정
+        if (plan === 'team') {
+            // Team: 최신 기본값 전체 적용 (gpt-5 3시간 160, gpt-5-thinking 주 3000, gpt-4o/4-1 160/3h)
+            limits = { ...defaultLimits.team };
+        } else if (plan === 'plus') {
+            // Plus: gpt-5 3시간 160, gpt-5-thinking 주 3000
+            limits['gpt-5'] = { type: 'threeHour', value: 160 };
+            limits['gpt-5-thinking'] = { type: 'weekly', value: 3000 };
+            // 기타 키는 기존 값 유지 (필요 시 기본값 병합 가능)
+        } else if (plan === 'free') {
+            // Free: gpt-4o, o4-mini 사용 불가
+            if (counts['gpt-4o']) delete counts['gpt-4o'];
+            if (counts['o4-mini']) delete counts['o4-mini'];
+            if (limits['gpt-4o']) delete limits['gpt-4o'];
+            if (limits['o4-mini']) delete limits['o4-mini'];
+        }
+
+        await chrome.storage.local.set({ usageCounts: counts, limits });
+    } catch (e) {
+        console.warn('정책 마이그레이션(2025-08) 실패:', e);
+    }
+}
 
 // o4-mini-high -> o4-mini 마이그레이션 (사용량/한도) 유틸
 async function migrateO4MiniHigh() {
@@ -287,11 +328,14 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create('cleanupData', { periodInMinutes: 24 * 60 });
         // o4-mini-high 데이터 마이그레이션 수행
         migrateO4MiniHigh();
+        // 2025-08 정책 마이그레이션 수행
+        migratePolicy2025_08();
 });
 
 // 브라우저 시작 시에도 마이그레이션 보장
 chrome.runtime.onStartup.addListener(() => {
     migrateO4MiniHigh();
+    migratePolicy2025_08();
 });
 
 // 데이터 정리 알람은 직접 onInstalled에서 등록
