@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 /dist/
 /.cache/
+build/
 
 # Logs
 npm-debug.log*
