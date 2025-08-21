@@ -166,7 +166,15 @@
       padding: 12px;
       margin: 8px 0;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }  </style>
+    }
+    /* 좌우 토글 스위치 */
+    .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; inset: 0; background: #ced4da; transition: .2s; border-radius: 22px; }
+    .slider:before { content: ""; position: absolute; height: 18px; width: 18px; left: 2px; bottom: 2px; background: #fff; transition: .2s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+    .switch input:checked + .slider { background: #0078d4; }
+    .switch input:checked + .slider:before { transform: translateX(18px); }
+  </style>
 </head>
 <body>
   <div class="header">
@@ -185,7 +193,16 @@
     </div>
     
     <div class="context-info">
-      <div class="deep-research-title">현재 컨텍스트 크기</div>
+    <div class="deep-research-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <span>현재 컨텍스트 크기</span>
+        <div style="font-size:11px;color:#6c757d;display:flex;align-items:center;gap:8px;">
+      <span id="contextModeLabel" style="font-weight:600;color:#495057;">현재 모드: 베이스</span>
+          <label class="switch">
+            <input type="checkbox" id="contextModeToggle" aria-label="컨텍스트 모드 전환 (베이스/추론)">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
       <div id="contextSize">-</div>
     </div>
     

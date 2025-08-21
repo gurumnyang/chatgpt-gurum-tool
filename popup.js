@@ -29,6 +29,11 @@ async function renderUsage() {
   const deepResearch = data.deepResearch || { remaining: '-', resetAt: null, total: '-' };
   const plan = data.currentPlan || 'free';
 
+  // 컨텍스트 모드 토글 요소/힌트
+  const toggleEl = document.getElementById('contextModeToggle');
+  const modeLabelEl = document.getElementById('contextModeLabel');
+  const isInferenceMode = !!(toggleEl && toggleEl.checked);
+
   // 타입에 따른 카운트 계산 함수 추가
   function getCountByType(timestamps, type) {
     if (!timestamps || !Array.isArray(timestamps)) return 0;
@@ -156,13 +161,23 @@ async function renderUsage() {
       return;
     }
     
-    // 현재 플랜에 따른 컨텍스트 한도 사용
-    const contextLimit = size.contextLimit || {
-      'free': 8192,     // 8K
-      'plus': 32768,    // 32K
-      'team': 32768,    // 32K
-      'pro': 131072     // 128K
-    }[plan] || 8192;    // 기본값은 Free 플랜
+    // 컨텍스트 한도: 모드에 따라 계산
+    let contextLimit;
+    if (isInferenceMode) {
+        // 추론 모델(o3, o4-mini, gpt-5-thinking): 현재는 플랜 무관 196K
+        const inf = { free: 196000, plus: 196000, team: 196000, pro: 196000 };
+        contextLimit = inf[plan] || 196000;
+    if (modeLabelEl) modeLabelEl.textContent = '현재 모드: 추론 (196K)';
+      } else {
+        // 베이스 모델: 사이트 제공값 우선, 없으면 플랜 기본값
+        contextLimit = size.contextLimit || {
+          'free': 8192,     // 8K
+          'plus': 32768,    // 32K
+          'team': 32768,    // 32K
+          'pro': 131072     // 128K
+        }[plan] || 8192;
+    if (modeLabelEl) modeLabelEl.textContent = '현재 모드: 베이스';
+    }
     
     // 토큰 수와 문자 수 표시
     const tokens = size.tokens || Math.ceil(size.chars * 0.25);
@@ -370,3 +385,29 @@ async function updateDeepResearchFromContent() {
 renderUsage();
 // 1분마다 갱신
 setInterval(renderUsage, 1000);
+
+// 컨텍스트 모드 토글 저장/복원
+const contextModeToggle = document.getElementById('contextModeToggle');
+const contextModeLabel = document.getElementById('contextModeLabel');
+if (contextModeToggle) {
+  // 초기 복원
+  chrome.storage.local.get('contextMode', data => {
+    const saved = data.contextMode || 'base';
+    contextModeToggle.checked = saved === 'inference';
+    if (contextModeLabel) {
+      contextModeLabel.textContent = saved === 'inference' ? '현재 모드: 추론 (196K)' : '현재 모드: 베이스';
+    }
+    // 초기 렌더 갱신
+    renderUsage();
+  });
+  // 변경 시 저장 및 갱신
+  contextModeToggle.addEventListener('change', () => {
+    const mode = contextModeToggle.checked ? 'inference' : 'base';
+    chrome.storage.local.set({ contextMode: mode }, () => {
+      if (contextModeLabel) {
+        contextModeLabel.textContent = mode === 'inference' ? '현재 모드: 추론 (196K)' : '현재 모드: 베이스';
+      }
+      renderUsage();
+    });
+  });
+}
