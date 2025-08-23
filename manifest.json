@@ -6,8 +6,8 @@
     "128": "icons/icon128.png",
     "512": "icons/icon512.png"
   },
-  "name": "ChatGPT 구름툴",
-  "version": "1.2.0",
+  "name": "구름툴:ChatGPT 보조도구",
+  "version": "1.2.1",
   "description": "ChatGPT 사용량 모니터링, 대화 내보내기, 컨텍스트 추적 등을 지원하는 보조 도구",
   "action": {
     "default_popup": "popup.html",
