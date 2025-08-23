@@ -2,7 +2,6 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
-const WebpackObfuscator = require('webpack-obfuscator');
 const ZipPlugin = require('zip-webpack-plugin');
 
 const pkg = require('./package.json');
@@ -75,36 +74,7 @@ module.exports = {
       ],
     }),
 
-    // 난독화 (MV3 안전 옵션, background는 제외)
-    new WebpackObfuscator(
-      {
-        compact: true,
-        controlFlowFlattening: false,
-        deadCodeInjection: false,
-        debugProtection: false,
-        disableConsoleOutput: true,
-        identifierNamesGenerator: 'hexadecimal',
-        numbersToExpressions: false,
-        renameGlobals: false,
-        rotateStringArray: true,
-        selfDefending: false,
-        simplify: true,
-        splitStrings: false,
-        stringArray: true,
-        stringArrayEncoding: ['base64'],
-        stringArrayThreshold: 0.75,
-        target: 'browser',
-        unicodeEscapeSequence: false,
-        transformObjectKeys: true,
-        sourceMap: false,
-      },
-      [
-        // 제외 패턴들 (서비스워커와 외부 번들)
-        'background.js',
-        '**/dist/**',
-        '**/thirdParty/**',
-      ]
-    ),
+    // 정책 준수를 위해 난독화는 제거, Terser로 최소화만 수행
 
     // zip 산출물 (release.zip, release_<version>.zip)
     new ZipPlugin({ filename: 'release.zip' }),
