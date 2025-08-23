@@ -46,9 +46,9 @@
         } else if (body instanceof FormData) {
           const obj = {};
           for (const [key, val] of body.entries()) obj[key] = val;
-          console.log("📝 Body (FormData):", obj);
+          // Body (FormData)
         } else {
-          console.log("📝 Body (기타):", body);
+          // Body (기타)
         }
       }
     } catch (err) {

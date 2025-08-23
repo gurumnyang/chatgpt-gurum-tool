@@ -275,7 +275,7 @@ function exportConversation(format) {
           const turndownService = new TurndownService();
           let md = '# ChatGPT 대화 내보내기\n\n';
           conv.forEach(msg => {
-            console.log(msg.html);
+            
             const html = msg.html || msg.content;
             const body = msg.html ? turndownService.turndown(html) : msg.content;
             md += `**${msg.sender}**:\n\n${body}\n\n---\n`;

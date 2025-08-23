@@ -65,7 +65,7 @@ function getTokenCount(text, model) {
   // 캐시 확인
   const cached = tokenCache.get(text, model);
   if (cached !== null) {
-    console.log('✅ 토큰 캐시 사용:', cached);
+    // 토큰 캐시 사용
     return cached;
   }
   
