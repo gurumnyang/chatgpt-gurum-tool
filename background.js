@@ -13,6 +13,9 @@ function getCountByType(timestamps, type) {
   let cutoffTime;
   
   switch (type) {
+    case 'fiveHour':
+      cutoffTime = now - (5 * 60 * 60 * 1000); // 5시간
+      break;
     case 'threeHour':
       cutoffTime = now - (3 * 60 * 60 * 1000); // 3시간
       break;
@@ -179,7 +182,7 @@ function updateModelUsage(modelName) {
 const defaultLimits = {
     free: {
     // 무료는 gpt-4o, o4-mini 사용 불가
-        "gpt-5": { type: "threeHour", value: 10 },
+        "gpt-5": { type: "fiveHour", value: 10 },
         "gpt-5-thinking": { type: "daily", value: 1 },
         // Deep Research
         "deep-research": { type: "monthly", value: 5 }
@@ -260,6 +263,7 @@ async function migratePolicy2025_08() {
             if (counts['o4-mini']) delete counts['o4-mini'];
             if (limits['gpt-4o']) delete limits['gpt-4o'];
             if (limits['o4-mini']) delete limits['o4-mini'];
+            limits['gpt-5'] = { type: 'fiveHour', value: 10 };
         }
 
         await chrome.storage.local.set({ usageCounts: counts, limits });
@@ -624,7 +628,7 @@ async function updateModelUsageWithWorkspace(model, workspaceId) {
             type: 'basic',
             iconUrl: 'icons/icon48.png',
             title: '사용량 경고',
-            message: `${model} 요청이 ${limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 80%에 도달했습니다. (${currentCount}/${limitValue})`
+            message: `${model} 요청이 ${limitType === 'fiveHour' ? '5시간' : limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 80%에 도달했습니다. (${currentCount}/${limitValue})`
           });
         }
       }
