@@ -42,6 +42,9 @@ async function renderUsage() {
     let cutoffTime;
     
     switch (type) {
+      case 'fiveHour':
+        cutoffTime = now - (5 * 60 * 60 * 1000); // 5시간 전
+        break;
       case 'threeHour':
         cutoffTime = now - (3 * 60 * 60 * 1000); // 3시간 전
         break;
@@ -101,13 +104,18 @@ async function renderUsage() {
       total = limit.value;
       
       // 타임스탬프 배열 기반으로 사용량 계산
-      if (usage.timestamps && Array.isArray(usage.timestamps)) {
-        used = getCountByType(usage.timestamps, type);
+      const timestampsArr = (usage.timestamps && Array.isArray(usage.timestamps))
+        ? usage.timestamps
+        : (usage.threeHourTimestamps && Array.isArray(usage.threeHourTimestamps))
+          ? usage.threeHourTimestamps
+          : null;
+      if (timestampsArr) {
+        used = getCountByType(timestampsArr, type);
       } else {
         // 레거시 지원 (이전 형식 데이터)
         if (type === 'daily') used = usage.daily || 0;
         else if (type === 'monthly') used = usage.monthly || 0;
-        else if (type === 'threeHour') used = usage.threeHour || 0;
+        else if (type === 'threeHour' || type === 'fiveHour') used = usage.threeHour || 0;
         else used = usage.daily || 0;
       }
     }
@@ -124,6 +132,7 @@ async function renderUsage() {
         monthly: '월간',
         weekly: '주간',
         threeHour: '3시간',
+        fiveHour: '5시간',
         unlimited: '무제한'
     }[type] || '일간';
 
