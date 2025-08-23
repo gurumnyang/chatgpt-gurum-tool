@@ -67,6 +67,9 @@ function getNextMonthlyResetTimestamp() {
     return next.getTime();
 }
 
+// 알림 임계치 (예: 80%)
+const NOTIFY_THRESHOLD = 0.8;
+
 // 임시 데이터 저장은 필요하지 않음 (웹 요청 직접 모니터링 대신 메시지 사용)
 
 // conversation/init API 요청은 fetch-hook.js와 content script를 통해 처리
@@ -74,105 +77,6 @@ function getNextMonthlyResetTimestamp() {
 
 
 // 메시지 카운트 데이터는 updateModelUsageWithWorkspace 함수로 처리
-
-// 모델별 사용량 카운트 증가 함수
-function updateModelUsage(modelName) {
-    if (!modelName) return;
-    
-    // storage에서 현재 데이터 로드
-    chrome.storage.local.get(['usageCounts', 'limits'], data => {
-        const usageCounts = data.usageCounts || {};
-        const limits = data.limits || {};
-        
-        // 해당 모델의 카운트 객체 가져오거나 초기화
-        const modelUsage = usageCounts[modelName] || { daily: 0, monthly: 0, threeHour: 0 };
-        
-        // 현재 시간과 날짜/월 정보
-        const now = new Date();
-        const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
-        const month = today.substring(0, 7); // YYYY-MM
-        const threeHoursAgo = now.getTime() - (3 * 60 * 60 * 1000);
-        
-        // 마지막 리셋 시간 확인 (없으면 초기화)
-        if (!usageCounts._lastReset) {
-            usageCounts._lastReset = {
-                daily: today,
-                monthly: month,
-                threeHour: now.getTime()
-            };
-        }
-        
-        // 일별 리셋 확인
-        if (usageCounts._lastReset.daily !== today) {
-            // 모든 모델의 일별 카운트 초기화
-            Object.keys(usageCounts).forEach(model => {
-                if (model !== '_lastReset' && usageCounts[model]) {
-                    usageCounts[model].daily = 0;
-                }
-            });
-            usageCounts._lastReset.daily = today;
-        }
-        
-        // 월별 리셋 확인
-        if (usageCounts._lastReset.monthly !== month) {
-            // 모든 모델의 월별 카운트 초기화
-            Object.keys(usageCounts).forEach(model => {
-                if (model !== '_lastReset' && usageCounts[model]) {
-                    usageCounts[model].monthly = 0;
-                }
-            });
-            usageCounts._lastReset.monthly = month;
-        }
-        
-        // 3시간 리셋 확인 (GPT-4 등에서 사용)
-        // threeHour는 타임스탬프 배열로 관리하여 롤링 윈도우 방식으로 계산
-        if (!modelUsage.threeHourTimestamps) {
-            modelUsage.threeHourTimestamps = [];
-        }
-        
-        // 새 요청 시간 추가
-        modelUsage.threeHourTimestamps.push(now.getTime());
-        
-        // 3시간 이전 요청들 제거
-        modelUsage.threeHourTimestamps = modelUsage.threeHourTimestamps.filter(
-            timestamp => timestamp > threeHoursAgo
-        );
-        
-        // 현재 3시간 내 요청 수
-        modelUsage.threeHour = modelUsage.threeHourTimestamps.length;
-        
-        // 일별/월별 카운터 증가
-        modelUsage.daily++;
-        modelUsage.monthly++;
-        
-        // 업데이트된 사용량 저장
-        usageCounts[modelName] = modelUsage;
-        
-        // 현재 한도 상태 점검
-        const modelLimit = limits[modelName];
-        if (modelLimit) {
-            const limitType = modelLimit.type; // 'daily', 'monthly', 'threeHour'
-            const limitValue = modelLimit.value;
-            const currentUsage = modelUsage[limitType] || 0;
-            
-            // 한도 임박 (90% 이상 사용) 체크
-            if (limitValue && currentUsage >= limitValue * 0.9) {
-                // 브라우저 알림 표시
-                chrome.notifications.create({
-                    type: 'basic',
-                    iconUrl: 'icons/icon128.png',
-                    title: `${modelName} 사용량 경고`,
-                    message: `현재 ${currentUsage}/${limitValue} (${Math.round(currentUsage/limitValue*100)}%) 사용하였습니다.`,
-                    priority: 1
-                });
-            }
-        }
-        
-        // storage에 저장
-        chrome.storage.local.set({ usageCounts });
-        console.log(`모델 ${modelName} 사용량 업데이트:`, modelUsage);
-    });
-}
 
 // Deep Research API 모니터링은 content script와 fetch-hook.js를 통해 처리
 
@@ -487,104 +391,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // 웹 요청 모니터링은 content script와 fetch/request hook을 통해 대체되었습니다.
 // 모델 정보 추출 및 사용량 업데이트는 메시지를 통해 처리됩니다.
 
-// 모델별 사용량 카운트 증가 함수 (background.js.bak에서 복원)
-function updateModelUsage(modelName) {
-    if (!modelName) return;
-    
-    // storage에서 현재 데이터 로드
-    chrome.storage.local.get(['usageCounts', 'limits'], data => {
-        const usageCounts = data.usageCounts || {};
-        const limits = data.limits || {};
-        
-        // 해당 모델의 카운트 객체 가져오거나 초기화
-        const modelUsage = usageCounts[modelName] || { daily: 0, monthly: 0, threeHour: 0 };
-        
-        // 현재 시간과 날짜/월 정보
-        const now = new Date();
-        const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
-        const month = today.substring(0, 7); // YYYY-MM
-        const threeHoursAgo = now.getTime() - (3 * 60 * 60 * 1000);
-        
-        // 마지막 리셋 시간 확인 (없으면 초기화)
-        if (!usageCounts._lastReset) {
-            usageCounts._lastReset = {
-                daily: today,
-                monthly: month,
-                threeHour: now.getTime()
-            };
-        }
-        
-        // 일별 리셋 확인
-        if (usageCounts._lastReset.daily !== today) {
-            // 모든 모델의 일별 카운트 초기화
-            Object.keys(usageCounts).forEach(model => {
-                if (model !== '_lastReset' && usageCounts[model]) {
-                    usageCounts[model].daily = 0;
-                }
-            });
-            usageCounts._lastReset.daily = today;
-        }
-        
-        // 월별 리셋 확인
-        if (usageCounts._lastReset.monthly !== month) {
-            // 모든 모델의 월별 카운트 초기화
-            Object.keys(usageCounts).forEach(model => {
-                if (model !== '_lastReset' && usageCounts[model]) {
-                    usageCounts[model].monthly = 0;
-                }
-            });
-            usageCounts._lastReset.monthly = month;
-        }
-        
-        // 3시간 리셋 확인 (GPT-4 등에서 사용)
-        // threeHour는 타임스탬프 배열로 관리하여 롤링 윈도우 방식으로 계산
-        if (!modelUsage.threeHourTimestamps) {
-            modelUsage.threeHourTimestamps = [];
-        }
-        
-        // 새 요청 시간 추가
-        modelUsage.threeHourTimestamps.push(now.getTime());
-        
-        // 3시간 이전 요청들 제거
-        modelUsage.threeHourTimestamps = modelUsage.threeHourTimestamps.filter(
-            timestamp => timestamp > threeHoursAgo
-        );
-        
-        // 현재 3시간 내 요청 수
-        modelUsage.threeHour = modelUsage.threeHourTimestamps.length;
-        
-        // 일별/월별 카운터 증가
-        modelUsage.daily++;
-        modelUsage.monthly++;
-        
-        // 업데이트된 사용량 저장
-        usageCounts[modelName] = modelUsage;
-        
-        // 현재 한도 상태 점검
-        const modelLimit = limits[modelName];
-        if (modelLimit) {
-            const limitType = modelLimit.type; // 'daily', 'monthly', 'threeHour'
-            const limitValue = modelLimit.value;
-            const currentUsage = modelUsage[limitType] || 0;
-            
-            // 한도 임박 (90% 이상 사용) 체크
-            if (limitValue && currentUsage >= limitValue * 0.9) {
-                // 브라우저 알림 표시
-                chrome.notifications.create({
-                    type: 'basic',
-                    iconUrl: 'icons/icon48.png', // 아이콘이 있어야 함
-                    title: `${modelName} 사용량 경고`,
-                    message: `현재 ${currentUsage}/${limitValue} (${Math.round(currentUsage/limitValue*100)}%) 사용하였습니다.`,
-                    priority: 1
-                });
-            }
-        }
-        
-        // storage에 저장
-        chrome.storage.local.set({ usageCounts });
-        console.log(`모델 ${modelName} 사용량 업데이트:`, modelUsage);
-    });
-}
+// 중복된 updateModelUsage 제거 (timestamps 기반 로직만 유지)
 
 // workspace별 모델 사용량 업데이트 함수
 async function updateModelUsageWithWorkspace(model, workspaceId) {
@@ -622,13 +429,12 @@ async function updateModelUsageWithWorkspace(model, workspaceId) {
         // 현재 카운트 계산 - 타임스탬프 배열 기반
         const currentCount = getCountByType(counts[model].timestamps, limitType);
         
-        // 한도 임박 알림 (80% 도달 시)
-        if (limitValue && currentCount >= limitValue * 0.8) {
+        if (limitValue && currentCount >= limitValue * NOTIFY_THRESHOLD) {
           chrome.notifications.create({
             type: 'basic',
             iconUrl: 'icons/icon48.png',
             title: '사용량 경고',
-            message: `${model} 요청이 ${limitType === 'fiveHour' ? '5시간' : limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 80%에 도달했습니다. (${currentCount}/${limitValue})`
+            message: `${model} 요청이 ${limitType === 'fiveHour' ? '5시간' : limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 ${Math.round(NOTIFY_THRESHOLD*100)}%에 도달했습니다. (${currentCount}/${limitValue})`
           });
         }
       }

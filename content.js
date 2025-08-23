@@ -87,7 +87,6 @@ function checkExtensionContext() {
     // chrome.runtime.id에 접근하여 유효성 확인
     if (chrome.runtime.id) {
       if (!isExtensionContextValid) {
-        console.log('🔄 확장 프로그램 컨텍스트가 복원되었습니다. 재연결 시도');
         isExtensionContextValid = true;
         // 여기서 필요한 초기화 작업 수행
         observeConversation();
@@ -149,7 +148,6 @@ window.addEventListener('message', event => {
   const data = event.data;
     // 1. conversation/init 요청 데이터 처리
   if (data && data.type === 'CHATGPT_TOOL_INIT_REQUEST') {
-    console.log('🔄 Conversation/init 요청 데이터 받음, background로 전달:', data);
     safeSendMessage({
       type: 'init_request_captured',
       data: data
@@ -165,7 +163,6 @@ window.addEventListener('message', event => {
   }
   // 3. 메시지 카운트 처리 (request 후킹에서 전송)
   if (data && data.type === 'CHATGPT_TOOL_MESSAGE_COUNT') {
-    console.log('📊 메시지 카운트 정보 받음, background로 전달:', data.model);
     safeSendMessage({
       type: 'messageCount',
       model: data.model,
@@ -177,7 +174,6 @@ window.addEventListener('message', event => {
 
 // DOM이 완전히 로드된 후 초기화
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('DOM이 로드되었습니다. ChatGPT 페이지 분석 시작.');
   
   // 페이지 분석 및 필요한 DOM 요소 관찰 등 초기화 작업
   observeConversation();
@@ -216,7 +212,6 @@ function observeConversation() {
       }
       
       if (hasMessageChange) {
-        console.log('🔄 대화 내용 변경 감지, 컨텍스트 측정 캐시 무효화');
         // 대화 변경 시 측정 캐시 초기화
         if (window.CONTEXT_MEASUREMENT) {
           window.CONTEXT_MEASUREMENT.lastMeasureTime = 0;
@@ -236,7 +231,6 @@ function observeConversation() {
     subtree: true,
     characterData: true
   });
-  console.log('✅ 대화 영역 관찰 시작 (디바운스: ' + OBSERVATION_DEBOUNCE_TIME + 'ms)');
 }
 
 // 메시지 리스너 - 팝업/백그라운드와 통신
@@ -412,13 +406,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // 플랜이 변경되었을 수 있으므로, 한도 정보만 업데이트
           const cachedResult = {...window.CONTEXT_MEASUREMENT.lastResult};
           cachedResult.contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
-          // console.log('🔄 캐시된 토큰 측정 결과 사용');
+      
           return resolve(cachedResult);
         }
       
         // 중복 측정 방지
         if (window.CONTEXT_MEASUREMENT.inProgress) {
-          // console.log('⌛ 이미 측정 진행 중, 잠시후 재시도하세요');
+          
           return resolve(window.CONTEXT_MEASUREMENT.lastResult || { 
             chars: 0, 
             tokens: 0, 
@@ -434,13 +428,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       conversation.forEach(msg => {
         text += msg.content;
       });
-      console.log('🔄 대화 내용:', text);
+      // 대화 내용 수집 완료
       
       // 문자 길이 계산
       const chars = text.length;
         // 응답 대기 타임아웃 (1.5초 후 기본값 반환)
       const timeoutId = setTimeout(() => {
-        console.log('⚠️ 토큰 계산 타임아웃, 근사치 사용');
+        // 토큰 계산 타임아웃, 근사치 사용
         const contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
         const result = { 
           chars, 
@@ -468,7 +462,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           window.removeEventListener('message', responseListener);
           clearTimeout(timeoutId);
           
-          console.log('✅ 정확한 토큰 계산값 수신:', data.tokens);
+          // 정확한 토큰 계산값 수신
           const contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
           const result = {
             chars: data.chars,
