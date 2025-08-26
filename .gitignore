@@ -5,6 +5,7 @@ node_modules/
 /dist/
 /.cache/
 build/
+build-firefox/
 
 # Logs
 npm-debug.log*
