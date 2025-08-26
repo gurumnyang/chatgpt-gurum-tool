@@ -18,8 +18,9 @@
     }
   },
   "background": {
-    "service_worker": "background.js"
-  },  "content_scripts": [
+    "scripts": "background.js"
+  },
+  "content_scripts": [
     {
       "matches": [
         "*://chat.openai.com/*",
@@ -29,15 +30,12 @@
       "js": ["content.js"],
       "run_at": "document_start"
     }
-  ],  "web_accessible_resources": [
+  ],
+  "web_accessible_resources": [
     {
       "resources": [
         "request-hook.js",
         "fetch-hook.js",
-        "thirdParty/tiktoken.bundle.js",
-        "thirdParty/tiktoken-ranks.bundle.js",
-        "dist/tiktoken.bundle.js",
-        "dist/tiktoken-ranks.bundle.js",
         "token-calculator.js"
       ],
       "matches": [
@@ -46,7 +44,8 @@
         "https://*.openai.com/*"
       ]
     }
-  ],"permissions": [
+  ],
+  "permissions": [
     "storage",
     "alarms",
     "notifications",
@@ -55,5 +54,11 @@
   "host_permissions": [
     "https://*.openai.com/*",
     "https://chatgpt.com/*"
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "chatgpt-tool@gurum.dev",
+      "strict_min_version": "128.0"
+    }
+  }
 }
