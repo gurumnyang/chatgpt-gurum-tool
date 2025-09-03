@@ -71,6 +71,7 @@ module.exports = {
       patterns: [
         { from: 'manifest.json', to: 'manifest.json' },
         { from: 'icons', to: 'icons' },
+        { from: '_locales', to: '_locales' },
         { from: 'dist', to: 'dist' },
         { from: 'thirdParty', to: 'thirdParty' },
       ],

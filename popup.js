@@ -1,5 +1,28 @@
 // popup.js
 // ChatGPT 보조 도구 확장 - 팝업 UI 로직
+// i18n helpers
+function t(id, subs) {
+  try {
+    if (window.LOCALE_DICT && window.LOCALE_DICT[id] && window.LOCALE_DICT[id].message) {
+      let s = window.LOCALE_DICT[id].message;
+      const arr = Array.isArray(subs) ? subs : [];
+      arr.forEach((v, i) => { s = s.replace(new RegExp('\\$' + (i+1), 'g'), v); });
+      return s;
+    }
+    const msg = chrome.i18n.getMessage(id, subs || []);
+    return msg || id;
+  } catch { return id; }
+}
+
+function translatePage() {
+  try {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      const msg = t(key);
+      if (msg) el.textContent = msg;
+    });
+  } catch {}
+}
 
 // 탭 전환
 const tabs = document.querySelectorAll('.tab');
@@ -12,6 +35,28 @@ tabs.forEach(tab => {
     document.getElementById(tab.dataset.tab + '-tab').classList.add('active');
   });
 });
+
+// translate static texts
+translatePage();
+
+async function initLocaleOverride() {
+  try {
+    const { userLocale } = await new Promise(r => chrome.storage.local.get('userLocale', r));
+    window.LOCALE_DICT = null;
+    if (userLocale && userLocale !== 'system') {
+      const url = chrome.runtime.getURL(`_locales/${userLocale}/messages.json`);
+      const res = await fetch(url);
+      if (res.ok) {
+        window.LOCALE_DICT = await res.json();
+      }
+    }
+    translatePage();
+    // re-render usage to apply translated labels
+    renderUsage();
+  } catch {}
+}
+
+initLocaleOverride();
 
 // 모델별 사용량, 한도, Deep Research, 컨텍스트 크기 등 표시
 async function renderUsage() {
@@ -129,13 +174,13 @@ async function renderUsage() {
     const div = document.createElement('div');
 
     const labelType = {
-        daily: '일간',
-        monthly: '월간',
-        weekly: '주간',
-        threeHour: '3시간',
-        fiveHour: '5시간',
-        unlimited: '무제한'
-    }[type] || '일간';
+        daily: t('limit_label_daily'),
+        monthly: t('limit_label_monthly'),
+        weekly: t('limit_label_weekly'),
+        threeHour: t('limit_label_threeHour'),
+        fiveHour: t('limit_label_fiveHour'),
+        unlimited: '∞'
+    }[type] || t('limit_label_daily');
 
     div.className = 'model-item';
     div.innerHTML = `
@@ -159,9 +204,9 @@ async function renderUsage() {
   }
   drCount.innerHTML = `
     <span class="remaining-count ${drClass}">${deepResearch.remaining}</span>
-    <span class="total-limit"> / ${deepResearch.total ? deepResearch.total : '?'}회</span>
-    <span class="reset-time">${deepResearch.resetAt ? '리셋까지: ' + formatCountdown(deepResearch.resetAt) : ''}</span>
-    <div class="data-source">(새로고침하여 갱신)</div>
+    <span class="total-limit"> / ${deepResearch.total ? deepResearch.total : '?'}${t('times_suffix')}</span>
+    <span class="reset-time">${deepResearch.resetAt ? t('reset_until_prefix') + ' ' + formatCountdown(deepResearch.resetAt) : ''}</span>
+    <div class="data-source">${t('refresh_to_update')}</div>
   `;
   // 컨텍스트 크기(토큰/문자)
   const contextDiv = document.getElementById('contextSize');
@@ -177,7 +222,7 @@ async function renderUsage() {
         // 추론 모델(o3, o4-mini, gpt-5-thinking): 현재는 플랜 무관 196K
         const inf = { free: 196000, plus: 196000, team: 196000, pro: 196000 };
         contextLimit = inf[plan] || 196000;
-    if (modeLabelEl) modeLabelEl.textContent = '현재 모드: 추론 (196K)';
+    if (modeLabelEl) modeLabelEl.textContent = t('current_mode_inference');
       } else {
         // 베이스 모델: 사이트 제공값 우선, 없으면 플랜 기본값
         contextLimit = size.contextLimit || {
@@ -186,7 +231,7 @@ async function renderUsage() {
           'team': 32768,    // 32K
           'pro': 131072     // 128K
         }[plan] || 8192;
-    if (modeLabelEl) modeLabelEl.textContent = '현재 모드: 베이스';
+    if (modeLabelEl) modeLabelEl.textContent = t('current_mode_base');
     }
     
     // 토큰 수와 문자 수 표시
@@ -204,18 +249,18 @@ async function renderUsage() {
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
           <span style="font-size: 15px; font-weight: 600;">${chars.toLocaleString()}</span>
-          <span style="font-size: 12px; color: #6c757d;">글자</span>
+          <span style="font-size: 12px; color: #6c757d;">${t('chars_label')}</span>
         </div>
         <div style="text-align: right;">
           <span style="font-size: 15px; font-weight: 600;" class="${statusClass}">${tokens.toLocaleString()}</span>
-          <span style="font-size: 12px; color: #6c757d;">토큰</span>
+          <span style="font-size: 12px; color: #6c757d;">${t('tokens_label')}</span>
         </div>
       </div>
       <div class="progress-bar" style="width: 100%; margin-top: 8px;">
         <div class="progress-fill ${statusClass}" style="width: ${Math.min(100, usageRatio * 100)}%"></div>
       </div>
       <div style="font-size: 10px; color: #6c757d; text-align: right; margin-top: 4px;">
-        최대 ${contextLimit.toLocaleString()} 토큰
+        ${t('max_tokens_prefix')} ${contextLimit.toLocaleString()} ${t('tokens_label')}
       </div>
     `;
   });
@@ -254,11 +299,11 @@ function exportConversation(format) {
       type: 'exportConversation'
     }, res => {
       if (chrome.runtime.lastError) {
-        alert('대화를 내보낼 수 없습니다. 페이지에서 확장 콘텐츠 스크립트를 사용할 수 없습니다.');
+        alert(t('cannot_export'));
         return;
       }
       if (!res || !res.conv) {
-        alert('대화 추출 실패');
+        alert(t('export_failed'));
         return;
       }
       
@@ -326,11 +371,11 @@ document.getElementById('copyClipboard').onclick = () => {
       type: 'exportConversation'
     }, res => {
       if (chrome.runtime.lastError) {
-        alert('대화를 복사할 수 없습니다. 페이지에서 확장 콘텐츠 스크립트를 사용할 수 없습니다.');
+        alert(t('cannot_copy'));
         return;
       }
       if (!res || !res.conv) {
-        alert('대화 추출 실패');
+        alert(t('export_failed'));
         return;
       }
       
@@ -348,7 +393,7 @@ document.getElementById('copyClipboard').onclick = () => {
           // 복사 성공 시 표시
           const button = document.getElementById('copyClipboard');
           const originalText = button.textContent;
-          button.textContent = '복사됨!';
+          button.textContent = t('copied');
           button.style.backgroundColor = '#28a745';
           
           // 2초 후 원래 텍스트로 복원
@@ -358,8 +403,8 @@ document.getElementById('copyClipboard').onclick = () => {
           }, 2000);
         })
         .catch(err => {
-          console.error('클립보드 복사 실패:', err);
-          alert('클립보드 복사에 실패했습니다.');
+          console.error('Clipboard copy failed:', err);
+          alert(t('copy_failed'));
         });
     });
   });
@@ -389,7 +434,7 @@ function updateLastPlanSyncLabel() {
     const ts = data.lastPlanSyncAt;
     if (!lastPlanSyncEl) return;
     if (!ts) {
-      lastPlanSyncEl.textContent = '마지막 동기화: -';
+      lastPlanSyncEl.textContent = `${t('last_sync_prefix')} -`;
       return;
     }
     const d = new Date(ts);
@@ -398,21 +443,21 @@ function updateLastPlanSyncLabel() {
     const dd = String(d.getDate()).padStart(2,'0');
     const hh = String(d.getHours()).padStart(2,'0');
     const mi = String(d.getMinutes()).padStart(2,'0');
-    lastPlanSyncEl.textContent = `마지막 동기화: ${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+    lastPlanSyncEl.textContent = `${t('last_sync_prefix')} ${yyyy}-${mm}-${dd} ${hh}:${mi}`;
   });
 }
 updateLastPlanSyncLabel();
 
 if (refreshRemoteBtn) {
   refreshRemoteBtn.addEventListener('click', () => {
-    if (remoteStatusEl) remoteStatusEl.textContent = '동기화 중...';
+    if (remoteStatusEl) remoteStatusEl.textContent = t('syncing');
     chrome.runtime.sendMessage({ type: 'refreshPlanLimits' }, (res) => {
       if (remoteStatusEl) {
         if (res && res.updated) {
           const ver = res.version ? ` (v:${res.version})` : '';
-          remoteStatusEl.textContent = `동기화 완료${ver}`;
+          remoteStatusEl.textContent = `${t('sync_done')}${ver}`;
         } else {
-          remoteStatusEl.textContent = '동기화 실패 (URL이나 네트워크 확인)';
+          remoteStatusEl.textContent = t('sync_failed');
         }
       }
       // 사용량/한도 UI 재렌더
@@ -463,5 +508,19 @@ if (contextModeToggle) {
       }
       renderUsage();
     });
+  });
+}
+
+// Locale selector
+const localeSelect = document.getElementById('localeSelect');
+if (localeSelect) {
+  chrome.storage.local.get('userLocale', data => {
+    const v = data.userLocale || 'system';
+    localeSelect.value = v;
+  });
+  localeSelect.addEventListener('change', async () => {
+    const v = localeSelect.value;
+    await new Promise(r => chrome.storage.local.set({ userLocale: v }, r));
+    await initLocaleOverride();
   });
 }

@@ -1,0 +1,53 @@
+{
+  "appName": { "message": "구름툴:ChatGPT 보조도구" },
+  "appDesc": { "message": "ChatGPT 사용량 모니터링, 대화 내보내기, 컨텍스트 추적을 지원" },
+
+  "title_main": { "message": "ChatGPT 보조 도구" },
+  "tab_usage": { "message": "사용량" },
+  "tab_export": { "message": "내보내기" },
+  "tab_settings": { "message": "설정" },
+  "language": { "message": "언어" },
+  "language_system": { "message": "시스템 기본" },
+  "language_korean": { "message": "한국어" },
+  "language_english": { "message": "영어" },
+
+  "deep_research_title": { "message": "Deep Research 남은 횟수" },
+  "context_title": { "message": "현재 컨텍스트 크기" },
+  "current_mode_base": { "message": "현재 모드: 베이스" },
+  "current_mode_inference": { "message": "현재 모드: 추론 (196K)" },
+
+  "model_limit_sync": { "message": "모델 한도 동기화" },
+  "last_sync_prefix": { "message": "마지막 동기화:" },
+  "sync_now": { "message": "지금 동기화" },
+  "syncing": { "message": "동기화 중..." },
+  "sync_done": { "message": "동기화 완료" },
+  "sync_failed": { "message": "동기화 실패 (네트워크 확인)" },
+  "refresh_to_update": { "message": "(새로고침하여 갱신)" },
+
+  "export_markdown": { "message": "Markdown" },
+  "export_json": { "message": "JSON" },
+  "export_text": { "message": "텍스트" },
+  "copy_clipboard": { "message": "클립보드 복사" },
+
+  "usage_warning_title": { "message": "사용량 경고" },
+  "usage_warning_message": { "message": "$1 요청이 $2 한도의 $3%에 도달했습니다. ($4/$5)" },
+  "limit_label_fiveHour": { "message": "5시간" },
+  "limit_label_threeHour": { "message": "3시간" },
+  "limit_label_daily": { "message": "일일" },
+  "limit_label_weekly": { "message": "주간" },
+  "limit_label_monthly": { "message": "월간" },
+
+  "chars_label": { "message": "글자" },
+  "tokens_label": { "message": "토큰" },
+  "max_tokens_prefix": { "message": "최대" },
+
+  "cannot_export": { "message": "대화를 내보낼 수 없습니다. 페이지에서 확장 콘텐츠 스크립트를 사용할 수 없습니다." },
+  "cannot_copy": { "message": "대화를 복사할 수 없습니다. 페이지에서 확장 콘텐츠 스크립트를 사용할 수 없습니다." },
+  "export_failed": { "message": "대화 추출 실패" },
+  "copied": { "message": "복사됨!" },
+  "copy_failed": { "message": "클립보드 복사에 실패했습니다." },
+
+  "current_plan": { "message": "현재 플랜" },
+  "reset_until_prefix": { "message": "리셋까지:" },
+  "times_suffix": { "message": "회" }
+}

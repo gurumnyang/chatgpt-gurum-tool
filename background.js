@@ -130,6 +130,46 @@ function getNextMonthlyResetTimestamp() {
 // 알림 임계치 (예: 80%)
 const NOTIFY_THRESHOLD = 0.8;
 
+// i18n helpers (background/service worker)
+let BG_LOCALE_DICT = null;
+let BG_LOCALE_CODE = null; // 'system' | 'ko' | 'en'
+
+async function bgLoadLocaleDict(code) {
+    try {
+        if (!code || code === 'system') { BG_LOCALE_DICT = null; BG_LOCALE_CODE = 'system'; return; }
+        const url = chrome.runtime.getURL(`_locales/${code}/messages.json`);
+        const res = await fetch(url);
+        if (res.ok) {
+            BG_LOCALE_DICT = await res.json();
+            BG_LOCALE_CODE = code;
+        } else {
+            BG_LOCALE_DICT = null; BG_LOCALE_CODE = 'system';
+        }
+    } catch { BG_LOCALE_DICT = null; BG_LOCALE_CODE = 'system'; }
+}
+
+function t(id, subs) {
+    try {
+        if (BG_LOCALE_DICT && BG_LOCALE_DICT[id] && BG_LOCALE_DICT[id].message) {
+            let s = BG_LOCALE_DICT[id].message;
+            const arr = Array.isArray(subs) ? subs : [];
+            arr.forEach((v, i) => { s = s.replace(new RegExp('\\$' + (i+1), 'g'), v); });
+            return s;
+        }
+        return chrome.i18n.getMessage(id, subs || []) || id;
+    } catch { return id; }
+}
+function getLimitLabel(limitType) {
+    switch (limitType) {
+        case 'fiveHour': return t('limit_label_fiveHour');
+        case 'threeHour': return t('limit_label_threeHour');
+        case 'daily': return t('limit_label_daily');
+        case 'weekly': return t('limit_label_weekly');
+        case 'monthly': return t('limit_label_monthly');
+        default: return '';
+    }
+}
+
 // 임시 데이터 저장은 필요하지 않음 (웹 요청 직접 모니터링 대신 메시지 사용)
 
 // conversation/init API 요청은 fetch-hook.js와 content script를 통해 처리
@@ -271,6 +311,9 @@ let currentPlan = "free";
 // storage 초기화
 chrome.runtime.onInstalled.addListener(() => {
     (async () => {
+        // load locale override
+        const { userLocale } = await chrome.storage.local.get('userLocale');
+        await bgLoadLocaleDict(userLocale);
         const drTotal = await getDeepResearchTotalFor(currentPlan);
         const initialDr = {
             remaining: '-',
@@ -299,6 +342,8 @@ chrome.runtime.onInstalled.addListener(() => {
 // 브라우저 시작 시에도 마이그레이션 보장
 chrome.runtime.onStartup.addListener(() => {
     (async () => {
+        const { userLocale } = await chrome.storage.local.get('userLocale');
+        await bgLoadLocaleDict(userLocale);
         // 주기 동기화 알람 보장
         chrome.alarms.create('refreshPlanLimits', { periodInMinutes: 6 * 60 });
         await refreshPlanLimitsFromRemote();
@@ -306,6 +351,14 @@ chrome.runtime.onStartup.addListener(() => {
         migrateO4MiniHigh();
         migratePolicy2025_08();
     })();
+});
+
+// watch locale changes
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.userLocale) {
+        const v = changes.userLocale.newValue;
+        bgLoadLocaleDict(v);
+    }
 });
 
 // 데이터 정리 알람은 직접 onInstalled에서 등록
@@ -505,11 +558,14 @@ async function updateModelUsageWithWorkspace(model, workspaceId) {
       if (limitType !== 'unlimited') {
         const currentCount = getCountByType(counts[canonical].timestamps, limitType);
         if (limitValue && currentCount >= limitValue * NOTIFY_THRESHOLD) {
+          const title = t('usage_warning_title');
+          const percent = String(Math.round(NOTIFY_THRESHOLD * 100));
+          const msg = t('usage_warning_message', [canonical, getLimitLabel(limitType), percent, String(currentCount), String(limitValue)]);
           chrome.notifications.create({
             type: 'basic',
             iconUrl: 'icons/icon48.png',
-            title: '사용량 경고',
-            message: `${canonical} 요청이 ${limitType === 'fiveHour' ? '5시간' : limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 ${Math.round(NOTIFY_THRESHOLD*100)}%에 도달했습니다. (${currentCount}/${limitValue})`
+            title: title || 'Usage Warning',
+            message: msg
           });
         }
       }
