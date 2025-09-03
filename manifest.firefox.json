@@ -36,7 +36,9 @@
       "resources": [
         "request-hook.js",
         "fetch-hook.js",
-        "token-calculator.js"
+        "token-calculator.js",
+        "dist/tiktoken.bundle.js",
+        "dist/tiktoken-ranks.bundle.js"
       ],
       "matches": [
         "*://chat.openai.com/*",
