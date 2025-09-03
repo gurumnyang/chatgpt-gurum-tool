@@ -411,11 +411,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message.type === 'messageCount' && message.model) {
         console.log('📨 Content script로부터 메시지 카운트 수신:', message.model);
-        
-        // 기본 updateModelUsage 함수 호출 (background.js.bak 호환성)
-        updateModelUsage(message.model);
-        
-        // 추가로 workspace별 카운팅도 수행
+
+        // workspace별 카운팅 수행 (레거시 updateModelUsage는 사용하지 않음)
         updateModelUsageWithWorkspace(message.model, message.workspaceId || 'default');
     }
     
@@ -500,20 +497,18 @@ async function updateModelUsageWithWorkspace(model, workspaceId) {
     
     // 현재 타임스탬프 추가
     const now = Date.now();
-    counts[model].timestamps.push(now);    // 모델의 제한 타입에 따라 현재 사용량 계산
+    counts[model].timestamps.push(now);
+
+    // 사용량은 항상 저장하고 배지를 갱신 (한도 존재 여부 무관)
+    await chrome.storage.local.set({ usageCounts: counts });
+    updateBadge(counts);
+
+    // 한도가 정의된 모델만 경고 처리
     if (limits[model]) {
       const limitType = limits[model].type;
       const limitValue = limits[model].value;
-      
-      // 먼저 항상 사용량 저장 (unlimited 여부와 관계없이)
-      await chrome.storage.local.set({ usageCounts: counts });
-      updateBadge(counts);
-      
-      // unlimited가 아닌 경우에만 한도 확인 및 경고
       if (limitType !== 'unlimited') {
-        // 현재 카운트 계산 - 타임스탬프 배열 기반
         const currentCount = getCountByType(counts[model].timestamps, limitType);
-        
         if (limitValue && currentCount >= limitValue * NOTIFY_THRESHOLD) {
           chrome.notifications.create({
             type: 'basic',
