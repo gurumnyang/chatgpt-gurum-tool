@@ -1,0 +1,45 @@
+{
+  "version": "2025-09-03",
+  "updatedAt": "2025-09-03T00:00:00Z",
+  "plans": {
+    "free": {
+      "gpt-5": { "type": "fiveHour", "value": 10 },
+      "gpt-5-thinking": { "type": "daily", "value": 1 },
+      "deep-research": { "type": "monthly", "value": 5 }
+    },
+    "plus": {
+      "gpt-4o": { "type": "threeHour", "value": 80 },
+      "gpt-4-1": { "type": "threeHour", "value": 80 },
+      "o3": { "type": "weekly", "value": 100 },
+      "o4-mini": { "type": "daily", "value": 300 },
+      "gpt-5": { "type": "threeHour", "value": 160 },
+      "gpt-5-thinking": { "type": "weekly", "value": 200 },
+      "gpt-5-t-mini": { "type": "weekly", "value": 2800 },
+      "deep-research": { "type": "monthly", "value": 25 }
+    },
+    "team": {
+      "gpt-4o": { "type": "unlimited", "value": null },
+      "gpt-4-1": { "type": "threeHour", "value": 500 },
+      "o3": { "type": "daily", "value": 300 },
+      "o4-mini": { "type": "daily", "value": 300 },
+      "gpt-5": { "type": "threeHour", "value": 160 },
+      "gpt-5-thinking": { "type": "weekly", "value": 200 },
+      "gpt-5-t-mini": { "type": "weekly", "value": 2800 },
+      "gpt-5-pro": { "type": "monthly", "value": 15 },
+      "deep-research": { "type": "monthly", "value": 25 }
+    },
+    "pro": {
+      "gpt-4o": { "type": "unlimited", "value": null },
+      "gpt-4-1": { "type": "unlimited", "value": null },
+      "gpt-4-5": { "type": "unlimited", "value": null },
+      "o3": { "type": "unlimited", "value": null },
+      "o4-mini": { "type": "unlimited", "value": null },
+      "gpt-5": { "type": "unlimited", "value": null },
+      "gpt-5-thinking": { "type": "unlimited", "value": null },
+      "gpt-5-t-mini": { "type": "unlimited", "value": null },
+      "gpt-5-pro": { "type": "unlimited", "value": null },
+      "deep-research": { "type": "monthly", "value": 250 }
+    }
+  }
+}
+
