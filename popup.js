@@ -97,6 +97,7 @@ async function renderUsage() {
     
     const usage = usageCounts[model] || { timestamps: [] };
     const limit = limits[model];
+    const displayName = (limit && limit.displayName) ? limit.displayName : model;
     let used = 0, total = 0, type = '';
     
     if (limit) {
@@ -138,7 +139,7 @@ async function renderUsage() {
 
     div.className = 'model-item';
     div.innerHTML = `
-      <span class="model-name">${model}</span>
+      <span class="model-name">${displayName}</span>
       <span class="model-usage">
         <span class="usage-count ${barClass}">${used}</span>
         <span class="usage-limit"> / ${total ? total : '∞'} (${labelType})</span>

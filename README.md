@@ -23,6 +23,24 @@ ChatGPT 사용량 모니터링, 대화 내보내기, 컨텍스트 추적 등을 
   - 이후 6시간마다 자동 동기화 (네트워크 오류 시 폴백: 내장 기본 한도 사용)
   - 팝업 > 설정 탭에서 마지막 동기화 시점 확인 및 “지금 동기화” 수동 실행 가능
 
+### plan-limits.json 스키마(업그레이드)
+- `plans.<plan>.<canonicalModel>`: 한도 정의 항목(캐노니컬 모델 키)
+  - `type`: `fiveHour|threeHour|daily|weekly|monthly|unlimited`
+  - `value`: 숫자 또는 `null`(무제한)
+  - `displayName`(선택): 팝업에 표시할 모델명(예: `GPT-5`)
+  - `detect`(선택): 이 항목으로 라우팅할 실제 모델 키 리스트(예: `["gpt-5", "gpt-5-instant"]`).
+
+예시: `gpt-5-instant`를 `GPT-5`로 라우팅
+```
+"gpt-5": {
+  "type": "threeHour",
+  "value": 160,
+  "displayName": "GPT-5",
+  "detect": ["gpt-5", "gpt-5-instant"]
+}
+```
+확장은 `detect`에 매칭된 모델 요청을 모두 `gpt-5` 키로 카운트합니다.
+
 ## TODO
 
 - PDF 형식으로 대화 내보내기

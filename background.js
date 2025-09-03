@@ -44,6 +44,7 @@ async function refreshPlanLimitsFromRemote() {
 
         const now = Date.now();
         await chrome.storage.local.set({ planLimitsAll, limits, lastPlanSyncAt: now });
+        await migrateModelAliases();
 
         // Deep Research total 동기화 (remaining 유지)
         chrome.storage.local.get('deepResearch', data => {
@@ -143,54 +144,43 @@ const NOTIFY_THRESHOLD = 0.8;
 // 기본 모델별 한도 (예시)
 // 플랜별 모델 한도 설정
 const defaultLimits = {
-    free: {
-    // 무료는 gpt-4o, o4-mini 사용 불가
-        "gpt-5": { type: "fiveHour", value: 10 },
-        "gpt-5-thinking": { type: "daily", value: 1 },
-        // Deep Research
-        "deep-research": { type: "monthly", value: 5 }
+    "free": {
+      "gpt-5": { "type": "fiveHour", "value": 10, "displayName": "GPT-5", "detect": ["auto", "gpt-5", "gpt-5-instant"] },
+      "gpt-5-thinking": { "type": "daily", "value": 1, "displayName": "GPT-5 Thinking", "detect": ["gpt-5-thinking"] },
+      "deep-research": { "type": "monthly", "value": 5, "displayName": "Deep Research" }
     },
-    plus: {
-        // 기존 모델들
-        "gpt-4o": { type: "threeHour", value: 80 },
-        "gpt-4-1": { type: "threeHour", value: 80 },
-        "o3": { type: "weekly", value: 100 },
-        "o4-mini": { type: "daily", value: 300 },
-        // 신규 모델
-    // 정책 변경: GPT-5 3시간 160, GPT-5-thinking 주 3000
-    "gpt-5": { type: "threeHour", value: 160 },
-    "gpt-5-thinking": { type: "weekly", value: 3000 },
-        // Deep Research
-        "deep-research": { type: "monthly", value: 25 }
+    "plus": {
+      "gpt-4o": { "type": "threeHour", "value": 80, "displayName": "GPT-4o", "detect": ["gpt-4o"] },
+      "gpt-4-1": { "type": "threeHour", "value": 80, "displayName": "GPT-4.1", "detect": ["gpt-4-1"] },
+      "o3": { "type": "weekly", "value": 100, "displayName": "o3", "detect": ["o3"] },
+      "o4-mini": { "type": "daily", "value": 300, "displayName": "o4-mini", "detect": ["o4-mini"] },
+      "gpt-5": { "type": "threeHour", "value": 160, "displayName": "GPT-5", "detect": ["gpt-5", "gpt-5-instant"] },
+      "gpt-5-thinking": { "type": "weekly", "value": 200, "displayName": "GPT-5 Thinking", "detect": ["gpt-5-thinking"] },
+      "gpt-5-t-mini": { "type": "weekly", "value": 2800, "displayName": "GPT-5 Thinking mini", "detect": ["gpt-5-t-mini"] },
+      "deep-research": { "type": "monthly", "value": 25, "displayName": "Deep Research" }
     },
-    team: {
-        // Plus와 동일한 라인업 + 다음 오버라이드 적용
-        // 오버라이드:
-    // - gpt-5 3시간 160
-        // - gpt-4o 160/3시간
-        // - gpt-4-1 160/3시간
-        "gpt-4o": { type: "threeHour", value: 160 },
-        "gpt-4-1": { type: "threeHour", value: 160 },
-        "o3": { type: "weekly", value: 100 },
-        "o4-mini": { type: "daily", value: 300 },
-    "gpt-5": { type: "threeHour", value: 160 },
-    "gpt-5-thinking": { type: "weekly", value: 3000 },
-        "deep-research": { type: "monthly", value: 25 }
+    "team": {
+      "gpt-4o": { "type": "unlimited", "value": null, "displayName": "GPT-4o", "detect": ["gpt-4o"] },
+      "gpt-4-1": { "type": "threeHour", "value": 500, "displayName": "GPT-4.1", "detect": ["gpt-4-1"] },
+      "o3": { "type": "daily", "value": 300, "displayName": "o3", "detect": ["o3"] },
+      "o4-mini": { "type": "daily", "value": 300, "displayName": "o4-mini", "detect": ["o4-mini"] },
+      "gpt-5": { "type": "unlimited", "value": null, "displayName": "GPT-5", "detect": ["gpt-5", "gpt-5-instant"] },
+      "gpt-5-thinking": { "type": "weekly", "value": 200, "displayName": "GPT-5 Thinking", "detect": ["gpt-5-thinking"] },
+      "gpt-5-t-mini": { "type": "weekly", "value": 2800, "displayName": "GPT-5 Thinking mini", "detect": ["gpt-5-t-mini"] },
+      "gpt-5-pro": { "type": "monthly", "value": 15, "displayName": "GPT-5 Pro", "detect": ["gpt-5-pro"] },
+      "deep-research": { "type": "monthly", "value": 25, "displayName": "Deep Research" }
     },
-    pro: {
-        // 기존 모델들
-        "gpt-4o": { type: "unlimited", value: null },
-        "gpt-4-1": { type: "unlimited", value: null },
-        "gpt-4-5": { type: "unlimited", value: null },
-        "o3": { type: "unlimited", value: null },
-        "o4-mini": { type: "unlimited", value: null },
-        "o3-pro": { type: "unlimited", value: null },
-        // 신규 모델 (Pro 무제한)
-        "gpt-5": { type: "unlimited", value: null },
-        "gpt-5-thinking": { type: "unlimited", value: null }, // gpt-5-thinking은 Pro만 무제한
-        "gpt-5-pro": { type: "unlimited", value: null },
-        // Deep Research
-        "deep-research": { type: "monthly", value: 250 }
+    "pro": {
+      "gpt-4o": { "type": "unlimited", "value": null, "displayName": "GPT-4o", "detect": ["gpt-4o"] },
+      "gpt-4-1": { "type": "unlimited", "value": null, "displayName": "GPT-4.1", "detect": ["gpt-4-1"] },
+      "gpt-4-5": { "type": "unlimited", "value": null, "displayName": "GPT-4.5", "detect": ["gpt-4-5"] },
+      "o3": { "type": "unlimited", "value": null, "displayName": "o3", "detect": ["o3"] },
+      "o4-mini": { "type": "unlimited", "value": null, "displayName": "o4-mini", "detect": ["o4-mini"] },
+      "gpt-5": { "type": "unlimited", "value": null, "displayName": "GPT-5", "detect": ["gpt-5", "gpt-5-instant"] },
+      "gpt-5-thinking": { "type": "unlimited", "value": null, "displayName": "GPT-5 Thinking", "detect": ["gpt-5-thinking"] },
+      "gpt-5-t-mini": { "type": "unlimited", "value": null, "displayName": "GPT-5 Thinking mini", "detect": ["gpt-5-t-mini"] },
+      "gpt-5-pro": { "type": "unlimited", "value": null, "displayName": "GPT-5 Pro", "detect": ["gpt-5-pro"] },
+      "deep-research": { "type": "monthly", "value": 250, "displayName": "Deep Research" }
     }
 };
 
@@ -299,6 +289,7 @@ chrome.runtime.onInstalled.addListener(() => {
         chrome.alarms.create('refreshPlanLimits', { periodInMinutes: 6 * 60 });
         // 원격 플랜 동기화 시도
         await refreshPlanLimitsFromRemote();
+        await migrateModelAliases();
         // 마이그레이션 수행
         migrateO4MiniHigh();
         migratePolicy2025_08();
@@ -311,6 +302,7 @@ chrome.runtime.onStartup.addListener(() => {
         // 주기 동기화 알람 보장
         chrome.alarms.create('refreshPlanLimits', { periodInMinutes: 6 * 60 });
         await refreshPlanLimitsFromRemote();
+        await migrateModelAliases();
         migrateO4MiniHigh();
         migratePolicy2025_08();
     })();
@@ -481,46 +473,117 @@ async function updateModelUsageWithWorkspace(model, workspaceId) {
     const data = await chrome.storage.local.get(['usageCounts', 'limits', 'currentPlan']);
     const counts = data.usageCounts || {};
     const limits = data.limits || defaultLimits[data.currentPlan || 'free'];
-    
+
+    // 모델 라우팅: detect/aliases를 고려하여 캐노니컬 키로 매핑
+    const canonical = resolveCanonicalModel(model, limits);
+
     // workspace별로 카운트 관리 - 새 배열 기반 시스템
-    if (!counts[model]) {
-      counts[model] = {
+    if (!counts[canonical]) {
+      counts[canonical] = {
         // 타임스탬프 배열로 모든 요청 시간 저장
         timestamps: []
       };
     }
 
     // timestamps 배열이 없으면 초기화
-    if (!counts[model].timestamps) {
-      counts[model].timestamps = [];
+    if (!counts[canonical].timestamps) {
+      counts[canonical].timestamps = [];
     }
     
     // 현재 타임스탬프 추가
     const now = Date.now();
-    counts[model].timestamps.push(now);
+    counts[canonical].timestamps.push(now);
 
     // 사용량은 항상 저장하고 배지를 갱신 (한도 존재 여부 무관)
     await chrome.storage.local.set({ usageCounts: counts });
     updateBadge(counts);
 
     // 한도가 정의된 모델만 경고 처리
-    if (limits[model]) {
-      const limitType = limits[model].type;
-      const limitValue = limits[model].value;
+    if (limits[canonical]) {
+      const limitType = limits[canonical].type;
+      const limitValue = limits[canonical].value;
       if (limitType !== 'unlimited') {
-        const currentCount = getCountByType(counts[model].timestamps, limitType);
+        const currentCount = getCountByType(counts[canonical].timestamps, limitType);
         if (limitValue && currentCount >= limitValue * NOTIFY_THRESHOLD) {
           chrome.notifications.create({
             type: 'basic',
             iconUrl: 'icons/icon48.png',
             title: '사용량 경고',
-            message: `${model} 요청이 ${limitType === 'fiveHour' ? '5시간' : limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 ${Math.round(NOTIFY_THRESHOLD*100)}%에 도달했습니다. (${currentCount}/${limitValue})`
+            message: `${canonical} 요청이 ${limitType === 'fiveHour' ? '5시간' : limitType === 'threeHour' ? '3시간' : limitType === 'daily' ? '일일' : limitType === 'weekly' ? '주간' : '월간'} 한도의 ${Math.round(NOTIFY_THRESHOLD*100)}%에 도달했습니다. (${currentCount}/${limitValue})`
           });
         }
       }
     }
   } catch (error) {
     console.error('[Background] 모델 사용량 업데이트 에러:', error);
+  }
+}
+
+// 모델명을 limits 스키마 기반으로 캐노니컬 키로 변환
+function resolveCanonicalModel(incomingModel, planLimits) {
+  if (!planLimits || typeof planLimits !== 'object') return incomingModel;
+  // 정확 일치 우선
+  if (planLimits[incomingModel]) return incomingModel;
+  try {
+    for (const [key, cfg] of Object.entries(planLimits)) {
+      if (!cfg || typeof cfg !== 'object') continue;
+      const list = Array.isArray(cfg.detect) ? cfg.detect : [];
+      if (list.includes(incomingModel)) return key;
+    }
+    // 원격 limits에 detect가 없을 수 있으므로 로컬 기본 템플릿도 확인
+    const fallback = defaultLimits[currentPlan] || {};
+    for (const [key, cfg] of Object.entries(fallback)) {
+      if (!cfg || typeof cfg !== 'object') continue;
+      const list = Array.isArray(cfg.detect) ? cfg.detect : [];
+      if (list.includes(incomingModel)) return key;
+    }
+  } catch {}
+  return incomingModel;
+}
+
+// 기존 alias 키(예: gpt-5-instant)를 캐노니컬(예: gpt-5)로 병합
+async function migrateModelAliases() {
+  try {
+    const data = await chrome.storage.local.get(['usageCounts', 'planLimitsAll', 'currentPlan']);
+    const counts = data.usageCounts || {};
+    const tmplAll = data.planLimitsAll || defaultLimits;
+    const plan = data.currentPlan || currentPlan || 'free';
+    const planLimits = tmplAll[plan] || {};
+
+    let changed = false;
+    // alias -> canonical 매핑 구성
+    const aliasToCanonical = {};
+    for (const [key, cfg] of Object.entries(planLimits)) {
+      const list = Array.isArray(cfg?.detect) ? cfg.detect : [];
+      for (const alias of list) {
+        if (alias !== key) aliasToCanonical[alias] = key;
+      }
+    }
+
+    // 병합 수행
+    for (const [alias, canonical] of Object.entries(aliasToCanonical)) {
+      if (counts[alias]) {
+        const src = counts[alias];
+        const dst = counts[canonical] || {};
+        // timestamps 병합
+        const a = Array.isArray(dst.timestamps) ? dst.timestamps : [];
+        const b = Array.isArray(src.timestamps) ? src.timestamps : [];
+        const merged = Array.from(new Set([...(a || []), ...(b || [])])).sort();
+        dst.timestamps = merged;
+        // 레거시 카운터 합치기
+        dst.daily = (dst.daily || 0) + (src.daily || 0);
+        dst.monthly = (dst.monthly || 0) + (src.monthly || 0);
+        dst.threeHour = (dst.threeHour || 0) + (src.threeHour || 0);
+
+        counts[canonical] = dst;
+        delete counts[alias];
+        changed = true;
+      }
+    }
+
+    if (changed) await chrome.storage.local.set({ usageCounts: counts });
+  } catch (e) {
+    console.warn('모델 alias 마이그레이션 실패:', e);
   }
 }
 
