@@ -22,7 +22,7 @@
       "gpt-4-1": { "type": "threeHour", "value": 500 },
       "o3": { "type": "daily", "value": 300 },
       "o4-mini": { "type": "daily", "value": 300 },
-      "gpt-5": { "type": "threeHour", "value": 160 },
+      "gpt-5": { "type": "unlimited", "value": null },
       "gpt-5-thinking": { "type": "weekly", "value": 200 },
       "gpt-5-t-mini": { "type": "weekly", "value": 2800 },
       "gpt-5-pro": { "type": "monthly", "value": 15 },
