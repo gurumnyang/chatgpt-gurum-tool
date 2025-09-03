@@ -378,6 +378,50 @@ planSelect.addEventListener('change', () => {
   });
 });
 
+// 모델 한도 원격 동기화
+const refreshRemoteBtn = document.getElementById('refreshRemoteLimits');
+const remoteStatusEl = document.getElementById('remoteStatus');
+const lastPlanSyncEl = document.getElementById('lastPlanSync');
+
+function updateLastPlanSyncLabel() {
+  chrome.storage.local.get('lastPlanSyncAt', data => {
+    const ts = data.lastPlanSyncAt;
+    if (!lastPlanSyncEl) return;
+    if (!ts) {
+      lastPlanSyncEl.textContent = '마지막 동기화: -';
+      return;
+    }
+    const d = new Date(ts);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mi = String(d.getMinutes()).padStart(2,'0');
+    lastPlanSyncEl.textContent = `마지막 동기화: ${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+  });
+}
+updateLastPlanSyncLabel();
+
+if (refreshRemoteBtn) {
+  refreshRemoteBtn.addEventListener('click', () => {
+    if (remoteStatusEl) remoteStatusEl.textContent = '동기화 중...';
+    chrome.runtime.sendMessage({ type: 'refreshPlanLimits' }, (res) => {
+      if (remoteStatusEl) {
+        if (res && res.updated) {
+          const ver = res.version ? ` (v:${res.version})` : '';
+          remoteStatusEl.textContent = `동기화 완료${ver}`;
+        } else {
+          remoteStatusEl.textContent = '동기화 실패 (URL이나 네트워크 확인)';
+        }
+      }
+      // 사용량/한도 UI 재렌더
+      renderUsage();
+      updateLastPlanSyncLabel();
+      setTimeout(() => { if (remoteStatusEl) remoteStatusEl.textContent = ''; }, 3000);
+    });
+  });
+}
+
 // renderUsage 시작 전 Deep Research 최신화 요청
 async function updateDeepResearchFromContent() {
   const tabsArr = await new Promise(r => chrome.tabs.query({ active: true, currentWindow: true }, r));

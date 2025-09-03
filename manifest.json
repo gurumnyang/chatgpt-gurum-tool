@@ -54,6 +54,7 @@
   ],
   "host_permissions": [
     "https://*.openai.com/*",
-    "https://chatgpt.com/*"
+    "https://chatgpt.com/*",
+    "https://raw.githubusercontent.com/*"
   ]
 }

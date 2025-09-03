@@ -1,5 +1,64 @@
 console.log('Background script running.');
 
+// 원격 플랜 한도 구성 URL (고정)
+const REMOTE_LIMITS_URL = 'https://raw.githubusercontent.com/gurumnyang/chatgpt-gurum-tool/main/config/plan-limits.json';
+
+// 원격 플랜 한도 불러오기
+async function fetchRemotePlanLimits() {
+    const url = REMOTE_LIMITS_URL;
+    try {
+        const res = await fetch(url, { cache: 'no-cache' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data || !data.plans) throw new Error('Invalid plan JSON');
+        return data; // { version, updatedAt, plans }
+    } catch (e) {
+        console.warn('원격 플랜 한도 로드 실패:', e);
+        return null;
+    }
+}
+
+// 현재 플랜 템플릿(원격 > 로컬) 조회
+async function getPlanLimitsTemplate() {
+    const data = await chrome.storage.local.get(['planLimitsAll']);
+    return data.planLimitsAll || defaultLimits;
+}
+
+// Deep Research total 조회
+async function getDeepResearchTotalFor(plan) {
+    const tmpl = await getPlanLimitsTemplate();
+    return tmpl[plan] && tmpl[plan]['deep-research'] && tmpl[plan]['deep-research'].value != null
+        ? tmpl[plan]['deep-research'].value
+        : '-';
+}
+
+// 원격 플랜 한도 동기화
+async function refreshPlanLimitsFromRemote() {
+    try {
+        const conf = await chrome.storage.local.get(['currentPlan']);
+        const plan = conf.currentPlan || currentPlan || 'free';
+        const remote = await fetchRemotePlanLimits();
+        if (!remote) return { updated: false };
+        const planLimitsAll = remote.plans;
+        const limits = planLimitsAll[plan] || defaultLimits[plan] || {};
+
+        const now = Date.now();
+        await chrome.storage.local.set({ planLimitsAll, limits, lastPlanSyncAt: now });
+
+        // Deep Research total 동기화 (remaining 유지)
+        chrome.storage.local.get('deepResearch', data => {
+            const dr = data.deepResearch || {};
+            dr.total = (planLimitsAll[plan]?.['deep-research']?.value ?? dr.total ?? '-');
+            chrome.storage.local.set({ deepResearch: dr });
+        });
+
+        return { updated: true, version: remote.version, updatedAt: remote.updatedAt, lastSyncAt: now };
+    } catch (e) {
+        console.warn('원격 플랜 동기화 실패:', e);
+        return { updated: false };
+    }
+}
+
 /**
  * 타입별(3시간/일간/주간/월간) 카운트 계산
  * @param {Array} timestamps - 타임스탬프 배열
@@ -138,10 +197,11 @@ const defaultLimits = {
 // 정책 변경(2025-08): 모델/플랜 한도 마이그레이션
 async function migratePolicy2025_08() {
     try {
-        const data = await chrome.storage.local.get(['usageCounts', 'limits', 'currentPlan']);
+        const data = await chrome.storage.local.get(['usageCounts', 'limits', 'currentPlan', 'planLimitsAll']);
         const counts = data.usageCounts || {};
         let limits = data.limits || {};
         const plan = data.currentPlan || currentPlan || 'free';
+        const planTmpl = data.planLimitsAll || defaultLimits;
 
         // 1) 완전 삭제: gpt-4-1-mini
         if (counts['gpt-4-1-mini']) delete counts['gpt-4-1-mini'];
@@ -154,8 +214,8 @@ async function migratePolicy2025_08() {
 
         // 3) 플랜별 정책 보정
         if (plan === 'team') {
-            // Team: 최신 기본값 전체 적용 (gpt-5 3시간 160, gpt-5-thinking 주 3000, gpt-4o/4-1 160/3h)
-            limits = { ...defaultLimits.team };
+            // Team: 최신 템플릿 전체 적용
+            limits = { ...planTmpl.team };
         } else if (plan === 'plus') {
             // Plus: gpt-5 3시간 160, gpt-5-thinking 주 3000
             limits['gpt-5'] = { type: 'threeHour', value: 160 };
@@ -220,30 +280,40 @@ let currentPlan = "free";
 
 // storage 초기화
 chrome.runtime.onInstalled.addListener(() => {
-    const initialDr = {
-        remaining: '-',
-        total: defaultLimits[currentPlan]['deep-research']?.value || '-',
-        resetAt: getNextMonthlyResetTimestamp()
-    };
-    chrome.storage.local.set({ 
-        usageCounts: {}, 
-        limits: defaultLimits[currentPlan],
-        currentPlan: currentPlan,
-        deepResearch: initialDr
-    });
-    
-    // 하루에 한 번 오래된 데이터 정리 알람만 설정
-    chrome.alarms.create('cleanupData', { periodInMinutes: 24 * 60 });
-        // o4-mini-high 데이터 마이그레이션 수행
+    (async () => {
+        const drTotal = await getDeepResearchTotalFor(currentPlan);
+        const initialDr = {
+            remaining: '-',
+            total: drTotal || '-',
+            resetAt: getNextMonthlyResetTimestamp()
+        };
+        await chrome.storage.local.set({ 
+            usageCounts: {}, 
+            limits: defaultLimits[currentPlan],
+            currentPlan: currentPlan,
+            deepResearch: initialDr
+        });
+        // 오래된 데이터 정리 알람
+        chrome.alarms.create('cleanupData', { periodInMinutes: 24 * 60 });
+        // 플랜 한도 주기 동기화 알람 (6시간마다)
+        chrome.alarms.create('refreshPlanLimits', { periodInMinutes: 6 * 60 });
+        // 원격 플랜 동기화 시도
+        await refreshPlanLimitsFromRemote();
+        // 마이그레이션 수행
         migrateO4MiniHigh();
-        // 2025-08 정책 마이그레이션 수행
         migratePolicy2025_08();
+    })();
 });
 
 // 브라우저 시작 시에도 마이그레이션 보장
 chrome.runtime.onStartup.addListener(() => {
-    migrateO4MiniHigh();
-    migratePolicy2025_08();
+    (async () => {
+        // 주기 동기화 알람 보장
+        chrome.alarms.create('refreshPlanLimits', { periodInMinutes: 6 * 60 });
+        await refreshPlanLimitsFromRemote();
+        migrateO4MiniHigh();
+        migratePolicy2025_08();
+    })();
 });
 
 // 데이터 정리 알람은 직접 onInstalled에서 등록
@@ -257,6 +327,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         chrome.storage.local.get('usageCounts', data => {
             updateBadge(data.usageCounts || {});
         });
+    } else if (alarm.name === 'refreshPlanLimits') {
+        // 원격 플랜 동기화 (주기)
+        refreshPlanLimitsFromRemote();
     }
 });
 
@@ -290,8 +363,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         // reset_after가 ISO8601 문자열("2025-06-20T05:20:09.983812+00:00")일 때도 정상 처리
                         dr.resetAt = new Date(resetTime).getTime();
 
-                        const def = defaultLimits[plan] && defaultLimits[plan]['deep-research'];
-                        dr.total = def && def.value != null ? def.value : dr.total || '?';
+                        const tmpl = (data.planLimitsAll || defaultLimits);
+                        const def = tmpl[plan] && tmpl[plan]['deep-research'];
+                        dr.total = (def && def.value != null) ? def.value : (dr.total || '?');
 
                         chrome.storage.local.set({ deepResearch: dr });
                         console.log('💾 Deep Research 정보 저장 완료:', dr);
@@ -318,8 +392,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 dr.remaining = remaining;
                 dr.resetAt = new Date(reset_after).getTime();
                 
-                const def = defaultLimits[plan] && defaultLimits[plan]['deep-research'];
-                dr.total = def && def.value != null ? def.value : dr.total || '?';
+                const tmpl = (data.planLimitsAll || defaultLimits);
+                const def = tmpl[plan] && tmpl[plan]['deep-research'];
+                dr.total = (def && def.value != null) ? def.value : (dr.total || '?');
                 
                 chrome.storage.local.set({ deepResearch: dr });
                 console.log('💾 Deep Research 정보 저장 완료 (fetch hook):', dr);
@@ -352,7 +427,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             dr.remaining = message.remaining;
             // 플랜에 따른 전체 한도 설정
             const plan = data.currentPlan || currentPlan;
-            const def = defaultLimits[plan] && defaultLimits[plan]['deep-research'];
+            const tmpl = (data.planLimitsAll || defaultLimits);
+            const def = tmpl[plan] && tmpl[plan]['deep-research'];
             dr.total = (def && def.value != null) ? def.value : dr.total;
             // init API body에서 전달된 resetTime(seconds or ISO) 처리
             if (message.resetTime != null) {
@@ -369,10 +445,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // 플랜 변경
     if (message.type === 'changePlan' && message.plan) {
         currentPlan = message.plan;
-        const newLimits = defaultLimits[currentPlan] || {};
-        // deepResearch: 기존 remaining 값 유지하고 total만 업데이트
-        chrome.storage.local.get('deepResearch', data => {
-            const oldDr = data.deepResearch || {};
+        chrome.storage.local.get(['planLimitsAll', 'deepResearch'], data2 => {
+            const tmpl = data2.planLimitsAll || defaultLimits;
+            const newLimits = tmpl[currentPlan] || {};
+            const oldDr = (data2.deepResearch || {});
             const dr = {
                 remaining: oldDr.remaining ?? '-',
                 total: newLimits['deep-research']?.value ?? '-',
@@ -382,6 +458,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ status: 'ok' });
             });
         });
+        return true;
+    }
+
+    // 원격 플랜 한도 즉시 동기화
+    if (message.type === 'refreshPlanLimits') {
+        (async () => {
+            const result = await refreshPlanLimitsFromRemote();
+            sendResponse(result);
+        })();
         return true;
     }
 
