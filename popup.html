@@ -178,25 +178,25 @@
 </head>
 <body>
   <div class="header">
-    <h2>ChatGPT 보조 도구</h2>
+    <h2 data-i18n="title_main">ChatGPT 보조 도구</h2>
   </div>
   
   <div class="tab-container">
-    <button class="tab active" data-tab="usage">사용량</button>
-    <button class="tab" data-tab="export">내보내기</button>
-    <button class="tab" data-tab="settings">설정</button>
+    <button class="tab active" data-tab="usage" data-i18n="tab_usage">사용량</button>
+    <button class="tab" data-tab="export" data-i18n="tab_export">내보내기</button>
+    <button class="tab" data-tab="settings" data-i18n="tab_settings">설정</button>
   </div>
     <div id="usage-tab" class="tab-content active">
     <div class="deep-research">
-      <div class="deep-research-title">Deep Research 남은 횟수</div>
+      <div class="deep-research-title" data-i18n="deep_research_title">Deep Research 남은 횟수</div>
       <div id="deepResearchCount">-</div>
     </div>
     
     <div class="context-info">
     <div class="deep-research-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-        <span>현재 컨텍스트 크기</span>
+        <span data-i18n="context_title">현재 컨텍스트 크기</span>
         <div style="font-size:11px;color:#6c757d;display:flex;align-items:center;gap:8px;">
-      <span id="contextModeLabel" style="font-weight:600;color:#495057;">현재 모드: 베이스</span>
+      <span id="contextModeLabel" style="font-weight:600;color:#495057;" data-i18n="current_mode_base">현재 모드: 베이스</span>
           <label class="switch">
             <input type="checkbox" id="contextModeToggle" aria-label="컨텍스트 모드 전환 (베이스/추론)">
             <span class="slider"></span>
@@ -213,17 +213,17 @@
   
   <div id="export-tab" class="tab-content">
     <div class="action-buttons">
-      <button class="btn btn-primary" id="exportMarkdown">Markdown</button>
-      <button class="btn btn-primary" id="exportJSON">JSON</button>
+      <button class="btn btn-primary" id="exportMarkdown" data-i18n="export_markdown">Markdown</button>
+      <button class="btn btn-primary" id="exportJSON" data-i18n="export_json">JSON</button>
     </div>    <div class="action-buttons">
-      <button class="btn btn-secondary" id="exportTXT">텍스트</button>
-      <button class="btn btn-secondary" id="copyClipboard">클립보드 복사</button>
+      <button class="btn btn-secondary" id="exportTXT" data-i18n="export_text">텍스트</button>
+      <button class="btn btn-secondary" id="copyClipboard" data-i18n="copy_clipboard">클립보드 복사</button>
     </div>
   </div>
   
   <div id="settings-tab" class="tab-content">
     <div class="model-item">
-      <span class="model-name">현재 플랜</span>
+      <span class="model-name" data-i18n="current_plan">현재 플랜</span>
       <select id="planSelect">
         <option value="free">Free</option>
         <option value="plus">Plus</option>
@@ -232,11 +232,20 @@
       </select>
     </div>
 
+    <div class="model-item">
+      <span class="model-name" data-i18n="language">언어</span>
+      <select id="localeSelect" aria-label="Language">
+        <option value="system" data-i18n="language_system">시스템 기본</option>
+        <option value="ko" data-i18n="language_korean">한국어</option>
+        <option value="en" data-i18n="language_english">영어</option>
+      </select>
+    </div>
+
     <div class="model-item" style="flex-direction:column; align-items:stretch; gap:8px;">
-      <span class="model-name">모델 한도 동기화</span>
+      <span class="model-name" data-i18n="model_limit_sync">모델 한도 동기화</span>
       <div id="lastPlanSync" style="font-size:12px; color:#6c757d;">마지막 동기화: -</div>
       <div style="display:flex; gap:8px;">
-        <button class="btn btn-primary" id="refreshRemoteLimits" style="flex:1;">지금 동기화</button>
+        <button class="btn btn-primary" id="refreshRemoteLimits" style="flex:1;" data-i18n="sync_now">지금 동기화</button>
       </div>
       <div id="remoteStatus" style="font-size:12px; color:#6c757d;"></div>
     </div>

@@ -1,0 +1,53 @@
+{
+  "appName": { "message": "Gurum Tool: ChatGPT Helper" },
+  "appDesc": { "message": "Monitor usage, export chats, and track context tokens." },
+
+  "title_main": { "message": "ChatGPT Helper Tool" },
+  "tab_usage": { "message": "Usage" },
+  "tab_export": { "message": "Export" },
+  "tab_settings": { "message": "Settings" },
+  "language": { "message": "Language" },
+  "language_system": { "message": "System Default" },
+  "language_korean": { "message": "Korean" },
+  "language_english": { "message": "English" },
+
+  "deep_research_title": { "message": "Deep Research Remaining" },
+  "context_title": { "message": "Current Context Size" },
+  "current_mode_base": { "message": "Current Mode: Base" },
+  "current_mode_inference": { "message": "Current Mode: Inference (196K)" },
+
+  "model_limit_sync": { "message": "Model Limit Sync" },
+  "last_sync_prefix": { "message": "Last Sync:" },
+  "sync_now": { "message": "Sync Now" },
+  "syncing": { "message": "Syncing..." },
+  "sync_done": { "message": "Sync complete" },
+  "sync_failed": { "message": "Sync failed (check network)" },
+  "refresh_to_update": { "message": "(Refresh to update)" },
+
+  "export_markdown": { "message": "Markdown" },
+  "export_json": { "message": "JSON" },
+  "export_text": { "message": "Text" },
+  "copy_clipboard": { "message": "Copy to Clipboard" },
+
+  "usage_warning_title": { "message": "Usage Warning" },
+  "usage_warning_message": { "message": "Model $1 reached $3% of $2 limit ($4/$5)." },
+  "limit_label_fiveHour": { "message": "5 hours" },
+  "limit_label_threeHour": { "message": "3 hours" },
+  "limit_label_daily": { "message": "Daily" },
+  "limit_label_weekly": { "message": "Weekly" },
+  "limit_label_monthly": { "message": "Monthly" },
+
+  "chars_label": { "message": "chars" },
+  "tokens_label": { "message": "tokens" },
+  "max_tokens_prefix": { "message": "Max" },
+
+  "cannot_export": { "message": "Cannot export conversation. Content script is not available on the page." },
+  "cannot_copy": { "message": "Cannot copy conversation. Content script is not available on the page." },
+  "export_failed": { "message": "Failed to extract conversation." },
+  "copied": { "message": "Copied!" },
+  "copy_failed": { "message": "Failed to copy to clipboard." },
+
+  "current_plan": { "message": "Current Plan" },
+  "reset_until_prefix": { "message": "Until reset:" },
+  "times_suffix": { "message": "times" }
+}
