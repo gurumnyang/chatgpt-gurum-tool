@@ -38,6 +38,8 @@ module.exports = {
           compress: {
             passes: 2,
             drop_debugger: true,
+            // Remove all console.log calls in release bundles
+            pure_funcs: ["console.log"],
           },
           mangle: true,
           format: {
