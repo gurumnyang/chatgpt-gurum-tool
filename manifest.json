@@ -54,7 +54,7 @@
     "downloads"
   ],
   "host_permissions": [
-    "https://*.openai.com/*",
+    "https://chat.openai.com/*",
     "https://chatgpt.com/*",
     "https://raw.githubusercontent.com/*"
   ]
