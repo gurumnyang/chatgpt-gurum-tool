@@ -16,7 +16,7 @@
   "current_mode_base": { "message": "Base Mode" },
   "current_mode_inference": { "message": "Reasoning Mode" },
 
-  "model_limit_sync": { "message": "Model Limit Sync" },
+  "model_limit_sync": { "message": "Model Maximum Limit Sync" },
   "last_sync_prefix": { "message": "Last Sync:" },
   "sync_now": { "message": "Sync Now" },
   "syncing": { "message": "Syncing..." },

@@ -16,7 +16,7 @@
   "current_mode_base": { "message": "베이스 모드" },
   "current_mode_inference": { "message": "추론 모드" },
 
-  "model_limit_sync": { "message": "모델 한도 동기화" },
+  "model_limit_sync": { "message": "모델 최대 한도 동기화" },
   "last_sync_prefix": { "message": "마지막 동기화:" },
   "sync_now": { "message": "지금 동기화" },
   "syncing": { "message": "동기화 중..." },
