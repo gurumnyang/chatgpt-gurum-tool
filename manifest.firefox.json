@@ -25,8 +25,7 @@
     {
       "matches": [
         "*://chat.openai.com/*",
-        "*://chatgpt.com/*",
-        "*://*.openai.com/*"
+        "*://chatgpt.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start"
@@ -42,8 +41,7 @@
       ],
       "matches": [
         "*://chat.openai.com/*",
-        "*://chatgpt.com/*",
-        "https://*.openai.com/*"
+        "*://chatgpt.com/*"
       ]
     }
   ],

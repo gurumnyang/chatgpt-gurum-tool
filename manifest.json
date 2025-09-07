@@ -24,8 +24,7 @@
     {
       "matches": [
         "*://chat.openai.com/*",
-        "*://chatgpt.com/*",
-        "*://*.openai.com/*"
+        "*://chatgpt.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start"
@@ -34,16 +33,13 @@
     {
       "resources": [
         "fetch-hook.js",
-        "thirdParty/tiktoken.bundle.js",
-        "thirdParty/tiktoken-ranks.bundle.js",
         "dist/tiktoken.bundle.js",
         "dist/tiktoken-ranks.bundle.js",
         "token-calculator.js"
       ],
       "matches": [
-        "*://chat.openai.com/*",
-        "*://chatgpt.com/*",
-        "https://*.openai.com/*"
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*"
       ]
     }
   ],"permissions": [
