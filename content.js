@@ -51,18 +51,7 @@ function injectTiktokenLibrary() {
 
 // API 요청 가로채기를 위한 스크립트 주입 함수
 function injectAPIHooks() {
-  // 1. request-hook.js 주입 (기존 방식)
-  const requestHook = document.createElement('script');
-  requestHook.src = chrome.runtime.getURL('request-hook.js');
-  requestHook.onload = function() {
-    console.log("✅ Request 후킹 스크립트 로드 완료");
-    this.remove();
-  };
-  requestHook.onerror = function(error) {
-    console.error("❌ Request 후킹 스크립트 로드 실패:", error);
-  };
-  
-  // 2. fetch-hook.js 주입 (추가 방식)
+  // fetch-hook.js만 주입 (conversation/init 응답 전용)
   const fetchHook = document.createElement('script');
   fetchHook.src = chrome.runtime.getURL('fetch-hook.js');
   fetchHook.onload = function() {
@@ -72,9 +61,7 @@ function injectAPIHooks() {
   fetchHook.onerror = function(error) {
     console.error("❌ Fetch 후킹 스크립트 로드 실패:", error);
   };
-  
   // 페이지에 스크립트 태그 추가
-  (document.head || document.documentElement).appendChild(requestHook);
   (document.head || document.documentElement).appendChild(fetchHook);
 }
 
@@ -146,27 +133,12 @@ window.addEventListener('message', event => {
   if (event.source !== window) return;
 
   const data = event.data;
-    // 1. conversation/init 요청 데이터 처리
-  if (data && data.type === 'CHATGPT_TOOL_INIT_REQUEST') {
-    safeSendMessage({
-      type: 'init_request_captured',
-      data: data
-    });
-  }
-  // 2. Deep Research 정보 처리 (fetch 후킹에서 전송)
+  // Deep Research 정보 처리 (fetch 후킹에서 전송)
   if (data && data.type === 'CHATGPT_TOOL_DEEP_RESEARCH_INFO') {
     console.log('🔍 Deep Research 정보 받음, background로 전달:', data.info);
     safeSendMessage({
       type: 'deep_research_info',
       info: data.info
-    });
-  }
-  // 3. 메시지 카운트 처리 (request 후킹에서 전송)
-  if (data && data.type === 'CHATGPT_TOOL_MESSAGE_COUNT') {
-    safeSendMessage({
-      type: 'messageCount',
-      model: data.model,
-      timestamp: data.timestamp || Date.now()
     });
   }
   // 참고: 토큰 계산 결과는 이제 calculateContextSize 내에서 직접 처리됨

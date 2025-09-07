@@ -378,51 +378,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
 });
 
-// 메시지 카운트 업데이트
+// 메시지 처리 (fetch-hook에서의 최소 Deep Research 통신만 유지)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // 1. Request/fetch Hook에서 캡처한 conversation/init 요청 처리
-    if (message.type === 'init_request_captured' && message.data) {
-        console.log('📨 Content script로부터 conversation/init 데이터 수신:', message.data);
-        
-        try {
-            const { url, body } = message.data;
-            
-            // Deep Research 정보 추출 및 저장
-            if (body && body.limits_progress) {
-                const deepResearchLimit = body.limits_progress.find(
-                    limit => limit.feature_name === 'deep_research'
-                );
-                
-                if (deepResearchLimit) {
-                    const remaining = deepResearchLimit.remaining;
-                    const resetTime = deepResearchLimit.reset_after;
-
-                    console.log('💡 Deep Research 정보 추출 성공:', { remaining, resetTime });
-
-                    // storage 업데이트
-                    chrome.storage.local.get(['deepResearch', 'currentPlan'], data => {
-                        const dr = data.deepResearch || {};
-                        const plan = data.currentPlan || currentPlan;
-
-                        dr.remaining = remaining;
-                        // reset_after가 ISO8601 문자열("2025-06-20T05:20:09.983812+00:00")일 때도 정상 처리
-                        dr.resetAt = new Date(resetTime).getTime();
-
-                        const tmpl = (data.planLimitsAll || defaultLimits);
-                        const def = tmpl[plan] && tmpl[plan]['deep-research'];
-                        dr.total = (def && def.value != null) ? def.value : (dr.total || '?');
-
-                        chrome.storage.local.set({ deepResearch: dr });
-                        console.log('💾 Deep Research 정보 저장 완료:', dr);
-                    });
-                }
-            }
-        } catch (error) {
-            console.error('❌ conversation/init 데이터 처리 실패:', error);
-        }
-    }
-    
-    // 2. Fetch Hook에서 캡처한 Deep Research 정보 직접 처리
     if (message.type === 'deep_research_info' && message.info) {
         console.log('🔍 Content script로부터 Deep Research 정보 수신:', message.info);
         
@@ -453,12 +410,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } catch (error) {
             console.error('❌ Deep Research 정보 처리 실패:', error);
         }
-    }
-    if (message.type === 'messageCount' && message.model) {
-        console.log('📨 Content script로부터 메시지 카운트 수신:', message.model);
-
-        // workspace별 카운팅 수행 (레거시 updateModelUsage는 사용하지 않음)
-        updateModelUsageWithWorkspace(message.model, message.workspaceId || 'default');
     }
     
     // Deep Research 남은 횟수 저장
@@ -515,8 +466,65 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
 });
 
-// 웹 요청 모니터링은 content script와 fetch/request hook을 통해 대체되었습니다.
-// 모델 정보 추출 및 사용량 업데이트는 메시지를 통해 처리됩니다.
+// WebRequest를 이용해 모델 메시지 카운트를 측정 (MV3 관찰용 사용)
+try {
+  const URL_FILTERS = [
+    'https://chat.openai.com/*',
+    'https://chatgpt.com/*',
+    'https://*.openai.com/*'
+  ];
+
+  chrome.webRequest.onBeforeRequest.addListener(
+    async (details) => {
+      try {
+        // POST /backend-api/(f/)?conversation 만 대상
+        if (details.method !== 'POST') return;
+        const u = details.url || '';
+        if (!/\/backend-api\/(?:f\/)?conversation/.test(u)) return;
+
+        // requestBody에서 JSON 파싱
+        const rb = details.requestBody;
+        let bodyText = '';
+        if (rb?.raw && Array.isArray(rb.raw) && rb.raw.length > 0) {
+          // raw ArrayBuffer 합치기
+          const totalLen = rb.raw.reduce((sum, p) => sum + (p.bytes ? p.bytes.byteLength : 0), 0);
+          const buf = new Uint8Array(totalLen);
+          let offset = 0;
+          for (const part of rb.raw) {
+            if (part.bytes) {
+              const view = new Uint8Array(part.bytes);
+              buf.set(view, offset);
+              offset += view.byteLength;
+            }
+          }
+          bodyText = new TextDecoder('utf-8').decode(buf);
+        } else if (rb?.formData) {
+          // 폼데이터인 경우에도 모델 필드를 찾을 수 있으면 사용
+          const modelField = rb.formData.model;
+          if (Array.isArray(modelField) && modelField[0]) {
+            updateModelUsageWithWorkspace(modelField[0], 'default');
+            return;
+          }
+        }
+
+        if (!bodyText) return;
+        let model = null;
+        try {
+          const obj = JSON.parse(bodyText);
+          model = obj?.model || null;
+        } catch {}
+        if (!model) return;
+        updateModelUsageWithWorkspace(model, 'default');
+      } catch (e) {
+        // 관찰 전용: 에러는 무시
+      }
+    },
+    { urls: URL_FILTERS },
+    ['requestBody']
+  );
+} catch (e) {
+  console.warn('webRequest 초기화 실패:', e);
+}
 
 // 중복된 updateModelUsage 제거 (timestamps 기반 로직만 유지)
 

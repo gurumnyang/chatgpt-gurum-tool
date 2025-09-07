@@ -35,7 +35,6 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "request-hook.js",
         "fetch-hook.js",
         "token-calculator.js",
         "dist/tiktoken.bundle.js",
@@ -52,7 +51,8 @@
     "storage",
     "alarms",
     "notifications",
-    "downloads"
+    "downloads",
+    "webRequest"
   ],
   "host_permissions": [
     "https://*.openai.com/*",

@@ -33,7 +33,6 @@
   ],  "web_accessible_resources": [
     {
       "resources": [
-        "request-hook.js",
         "fetch-hook.js",
         "thirdParty/tiktoken.bundle.js",
         "thirdParty/tiktoken-ranks.bundle.js",
@@ -51,7 +50,8 @@
     "storage",
     "alarms",
     "notifications",
-    "downloads"
+    "downloads",
+    "webRequest"
   ],
   "host_permissions": [
     "https://chat.openai.com/*",
