@@ -13,8 +13,8 @@
 
   "deep_research_title": { "message": "Deep Research Remaining" },
   "context_title": { "message": "Current Context Size" },
-  "current_mode_base": { "message": "Current Mode: Base" },
-  "current_mode_inference": { "message": "Current Mode: Inference (196K)" },
+  "current_mode_base": { "message": "Base Mode" },
+  "current_mode_inference": { "message": "Reasoning Mode" },
 
   "model_limit_sync": { "message": "Model Limit Sync" },
   "last_sync_prefix": { "message": "Last Sync:" },
@@ -50,4 +50,18 @@
   "current_plan": { "message": "Current Plan" },
   "reset_until_prefix": { "message": "Until reset:" },
   "times_suffix": { "message": "times" }
+  ,
+  "theme": { "message": "Theme" },
+  "theme_light": { "message": "Light" },
+  "theme_dark": { "message": "Dark" },
+  "theme_rabbit": { "message": "Rabbit" },
+  "theme_cat": { "message": "Cat" },
+  "support_title": { "message": "Support" },
+  "support_desc": { "message": "If this project helps you, consider buying a coffee." },
+  "support_button": { "message": "Support on coff.ee" }
+  ,
+  "brand_title": { "message": "ChatGPT Gurum Tool" },
+  "link_github": { "message": "GitHub" },
+  "link_gallery": { "message": "Gallery" },
+  "link_support": { "message": "Support" }
 }

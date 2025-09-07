@@ -39,6 +39,16 @@ tabs.forEach(tab => {
 // translate static texts
 translatePage();
 
+// Show version in meta bar
+try {
+  const verEl = document.getElementById('appVersion');
+  if (verEl && chrome?.runtime?.getManifest) {
+    const v = chrome.runtime.getManifest().version || '';
+    verEl.textContent = `v${v}`;
+  }
+} catch {}
+
+
 async function initLocaleOverride() {
   try {
     const { userLocale } = await new Promise(r => chrome.storage.local.get('userLocale', r));
@@ -57,6 +67,13 @@ async function initLocaleOverride() {
 }
 
 initLocaleOverride();
+
+// Theme apply helper
+function applyTheme(theme) {
+  const valid = ['light','dark','rabbit','cat'];
+  const th = valid.includes(theme) ? theme : 'light';
+  document.body.setAttribute('data-theme', th);
+}
 
 // 모델별 사용량, 한도, Deep Research, 컨텍스트 크기 등 표시
 async function renderUsage() {
@@ -78,6 +95,9 @@ async function renderUsage() {
   const toggleEl = document.getElementById('contextModeToggle');
   const modeLabelEl = document.getElementById('contextModeLabel');
   const isInferenceMode = !!(toggleEl && toggleEl.checked);
+  // apply theme early
+  const { popupTheme } = await new Promise(r => chrome.storage.local.get('popupTheme', r));
+  applyTheme(popupTheme || 'light');
 
   // 타입에 따른 카운트 계산 함수 추가
   function getCountByType(timestamps, type) {
@@ -249,17 +269,17 @@ async function renderUsage() {
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
           <span style="font-size: 15px; font-weight: 600;">${chars.toLocaleString()}</span>
-          <span style="font-size: 12px; color: #6c757d;">${t('chars_label')}</span>
+          <span style="font-size: 12px; color: var(--muted);">${t('chars_label')}</span>
         </div>
         <div style="text-align: right;">
           <span style="font-size: 15px; font-weight: 600;" class="${statusClass}">${tokens.toLocaleString()}</span>
-          <span style="font-size: 12px; color: #6c757d;">${t('tokens_label')}</span>
+          <span style="font-size: 12px; color: var(--muted);">${t('tokens_label')}</span>
         </div>
       </div>
       <div class="progress-bar" style="width: 100%; margin-top: 8px;">
         <div class="progress-fill ${statusClass}" style="width: ${Math.min(100, usageRatio * 100)}%"></div>
       </div>
-      <div style="font-size: 10px; color: #6c757d; text-align: right; margin-top: 4px;">
+      <div style="font-size: 10px; color: var(--muted); text-align: right; margin-top: 4px;">
         ${t('max_tokens_prefix')} ${contextLimit.toLocaleString()} ${t('tokens_label')}
       </div>
     `;
@@ -398,8 +418,8 @@ document.getElementById('copyClipboard').onclick = () => {
           
           // 2초 후 원래 텍스트로 복원
           setTimeout(() => {
-            button.textContent = originalText;
-            button.style.backgroundColor = '#6c757d';
+          button.textContent = originalText;
+            button.style.backgroundColor = '';
           }, 2000);
         })
         .catch(err => {
@@ -524,3 +544,19 @@ if (localeSelect) {
     await initLocaleOverride();
   });
 }
+
+// Theme selector
+const themeSelect = document.getElementById('themeSelect');
+if (themeSelect) {
+  chrome.storage.local.get('popupTheme', data => {
+    const v = data.popupTheme || 'light';
+    themeSelect.value = v;
+    applyTheme(v);
+  });
+  themeSelect.addEventListener('change', () => {
+    const v = themeSelect.value;
+    chrome.storage.local.set({ popupTheme: v }, () => applyTheme(v));
+  });
+}
+
+//

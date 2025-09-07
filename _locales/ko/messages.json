@@ -13,8 +13,8 @@
 
   "deep_research_title": { "message": "Deep Research 남은 횟수" },
   "context_title": { "message": "현재 컨텍스트 크기" },
-  "current_mode_base": { "message": "현재 모드: 베이스" },
-  "current_mode_inference": { "message": "현재 모드: 추론 (196K)" },
+  "current_mode_base": { "message": "베이스 모드" },
+  "current_mode_inference": { "message": "추론 모드" },
 
   "model_limit_sync": { "message": "모델 한도 동기화" },
   "last_sync_prefix": { "message": "마지막 동기화:" },
@@ -50,4 +50,19 @@
   "current_plan": { "message": "현재 플랜" },
   "reset_until_prefix": { "message": "리셋까지:" },
   "times_suffix": { "message": "회" }
+  ,
+  "theme": { "message": "테마" },
+  "theme_light": { "message": "라이트" },
+  "theme_dark": { "message": "다크" },
+  "theme_rabbit": { "message": "토끼" },
+  "theme_cat": { "message": "고양이" }
+  ,
+  "support_title": { "message": "후원" },
+  "support_desc": { "message": "마음에 드신다면 커피 한 잔으로 응원해 주세요." },
+  "support_button": { "message": "coff.ee에서 후원하기" }
+  ,
+  "brand_title": { "message": "ChatGPT 구름툴" },
+  "link_github": { "message": "깃허브" },
+  "link_gallery": { "message": "갤러리" },
+  "link_support": { "message": "후원" }
 }
