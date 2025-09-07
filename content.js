@@ -3,55 +3,31 @@ console.log('Content script 로드됨. DOM 조작 및 메시지 처리 준비 �
 
 // tiktoken 라이브러리 로드 (페이지에 주입)
 function injectTiktokenLibrary() {
-  // tiktoken 번들만 사용하도록 단순화 (dist 폴더의 번들 사용)
   const tiktokenBundleScript = document.createElement('script');
   tiktokenBundleScript.src = chrome.runtime.getURL('dist/tiktoken.bundle.js');
   tiktokenBundleScript.onload = function() {
     console.log("✅ tiktoken 번들 라이브러리 로드 완료");
-    
-    // tiktoken 로드 후 토큰 계산기 스크립트 로드
+    // tiktoken 로드 후 토큰 계산기 로드
     const tokenCalculatorScript = document.createElement('script');
     tokenCalculatorScript.src = chrome.runtime.getURL('token-calculator.js');
-    tokenCalculatorScript.onload = function() {
-      console.log("✅ 토큰 계산기 스크립트 로드 완료");
-      this.remove();
-    };
-    tokenCalculatorScript.onerror = function(error) {
-      console.error("❌ 토큰 계산기 스크립트 로드 실패:", error);
-    };
+    tokenCalculatorScript.onload = function() { this.remove(); };
     (document.head || document.documentElement).appendChild(tokenCalculatorScript);
-    
     this.remove();
   };
-  
   tiktokenBundleScript.onerror = function(error) {
     console.error("❌ tiktoken 번들 라이브러리 로드 실패:", error);
-    // 오류 발생 시 thirdParty 폴더의 번들 시도
-    const tiktokenFallbackScript = document.createElement('script');
-    tiktokenFallbackScript.src = chrome.runtime.getURL('thirdParty/tiktoken.bundle.js');
-    tiktokenFallbackScript.onload = function() {
-      console.log("✅ tiktoken 폴백 번들 로드 완료");
-      
-      // tiktoken 로드 후 토큰 계산기 스크립트 로드
-      const tokenCalculatorScript = document.createElement('script');
-      tokenCalculatorScript.src = chrome.runtime.getURL('token-calculator.js');
-      tokenCalculatorScript.onload = function() {
-        console.log("✅ 토큰 계산기 스크립트 로드 완료");
-        this.remove();
-      };
-      (document.head || document.documentElement).appendChild(tokenCalculatorScript);
-      
-      this.remove();
-    };
-    (document.head || document.documentElement).appendChild(tiktokenFallbackScript);
+    // 실패해도 토큰 계산기 로드는 진행 (근사치 사용)
+    const tokenCalculatorScript = document.createElement('script');
+    tokenCalculatorScript.src = chrome.runtime.getURL('token-calculator.js');
+    tokenCalculatorScript.onload = function() { this.remove(); };
+    (document.head || document.documentElement).appendChild(tokenCalculatorScript);
   };
-  
   (document.head || document.documentElement).appendChild(tiktokenBundleScript);
 }
 
 // API 요청 가로채기를 위한 스크립트 주입 함수
 function injectAPIHooks() {
-  // fetch-hook.js만 주입 (conversation/init 응답 전용)
+  // fetch-hook.js 주입 
   const fetchHook = document.createElement('script');
   fetchHook.src = chrome.runtime.getURL('fetch-hook.js');
   fetchHook.onload = function() {
@@ -467,4 +443,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
 
-// token-calculator.js로 대체됨
