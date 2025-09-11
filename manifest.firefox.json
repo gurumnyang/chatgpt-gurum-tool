@@ -35,6 +35,7 @@
     {
       "resources": [
         "fetch-hook.js",
+        "timestamp-injector.js",
         "token-calculator.js",
         "dist/tiktoken.bundle.js",
         "dist/tiktoken-ranks.bundle.js"

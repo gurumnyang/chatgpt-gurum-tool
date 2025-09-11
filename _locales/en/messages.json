@@ -56,6 +56,7 @@
   "theme_dark": { "message": "Dark" },
   "theme_rabbit": { "message": "Rabbit" },
   "theme_cat": { "message": "Cat" },
+  "timestamps_label": { "message": "Message timestamps" },
   "support_title": { "message": "Support" },
   "support_desc": { "message": "If this project helps you, consider buying a coffee." },
   "support_button": { "message": "Support on coff.ee" }

@@ -309,8 +309,12 @@ async function migrateO4MiniHigh() {
 let currentPlan = "free";
 
 // storage 초기화
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
     (async () => {
+        try {
+            // 초기 설치 및 업데이트 시 타임스탬프 표시 기본값을 활성화
+            await chrome.storage.local.set({ showTimestamps: true });
+        } catch (_) {}
         // load locale override
         const { userLocale } = await chrome.storage.local.get('userLocale');
         await bgLoadLocaleDict(userLocale);

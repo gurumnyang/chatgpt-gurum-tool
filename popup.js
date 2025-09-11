@@ -559,4 +559,20 @@ if (themeSelect) {
   });
 }
 
-//
+// Timestamps toggle
+const toggleTimestamps = document.getElementById('toggleTimestamps');
+if (toggleTimestamps) {
+  chrome.storage.local.get('showTimestamps', data => {
+    toggleTimestamps.checked = !!data.showTimestamps;
+  });
+  toggleTimestamps.addEventListener('change', async () => {
+    const enabled = !!toggleTimestamps.checked;
+    await new Promise(r => chrome.storage.local.set({ showTimestamps: enabled }, r));
+    // Notify active tab content script to apply immediately
+    chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+      const tab = tabs && tabs[0];
+      if (!tab) return;
+      chrome.tabs.sendMessage(tab.id, { type: 'applyTimestampSetting', enabled });
+    });
+  });
+}

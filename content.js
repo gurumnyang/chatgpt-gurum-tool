@@ -41,6 +41,32 @@ function injectAPIHooks() {
   (document.head || document.documentElement).appendChild(fetchHook);
 }
 
+// 메시지 타임스탬프 표시 스크립트 주입 및 토글
+let tsInjected = false;
+function injectTimestampInjector(onReady) {
+  if (tsInjected) { if (typeof onReady === 'function') try { onReady(); } catch {} return; }
+  const s = document.createElement('script');
+  s.id = 'gurum-timestamp-injector';
+  s.src = chrome.runtime.getURL('timestamp-injector.js');
+  s.onload = function() { try { if (typeof onReady === 'function') onReady(); } catch {} this.remove(); };
+  s.onerror = (e) => console.error('❌ Timestamp injector 로드 실패:', e);
+  (document.head || document.documentElement).appendChild(s);
+  tsInjected = true;
+}
+
+async function applyTimestampSetting(enabled) {
+  try {
+    if (enabled) {
+      injectTimestampInjector(() => window.postMessage({ type: 'GURUM_TS_ENABLE' }, '*'));
+    } else {
+      // 주입되어 있지 않아도 비활성 메시지는 안전
+      window.postMessage({ type: 'GURUM_TS_DISABLE' }, '*');
+    }
+  } catch (e) {
+    console.warn('타임스탬프 설정 적용 실패:', e);
+  }
+}
+
 // 확장 프로그램 컨텍스트 유효성 및 재연결 관리
 let isExtensionContextValid = true;
 
@@ -95,6 +121,10 @@ try {
   if (chrome.runtime.id) {
     injectAPIHooks();
     injectTiktokenLibrary();
+    // 초기 타임스탬프 설정 적용
+    chrome.storage.local.get('showTimestamps', data => {
+      applyTimestampSetting(!!data.showTimestamps);
+    });
     console.log('✅ 확장 프로그램 컨텍스트 유효, API 후킹 시작');
   } else {
     console.warn('⚠️ 확장 프로그램 컨텍스트가 유효하지 않음');
@@ -184,6 +214,11 @@ function observeConversation() {
 // 메시지 리스너 - 팝업/백그라운드와 통신
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
+      if (message.type === 'applyTimestampSetting') {
+        applyTimestampSetting(!!message.enabled);
+        sendResponse({ ok: true });
+        return true;
+      }
       if (message.type === 'exportConversation') {
         const conv = extractConversation(message.startId, message.endId);
         sendResponse({ conv });
@@ -287,6 +322,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     return true;
   });
+
+// 스토리지 변경 감지로 타임스탬프 설정 동기화
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (Object.prototype.hasOwnProperty.call(changes, 'showTimestamps')) {
+      const nv = changes.showTimestamps.newValue;
+      applyTimestampSetting(!!nv);
+    }
+  });
+} catch {}
 
   function extractConversation(startId, endId) {
     // Extract messages, fallback to older DOM structure if necessary

@@ -15,6 +15,7 @@ module.exports = {
     content: './content.js',
     popup: './popup.js',
     'fetch-hook': './fetch-hook.js',
+    'timestamp-injector': './timestamp-injector.js',
     'token-calculator': './token-calculator.js',
   },
   output: {
