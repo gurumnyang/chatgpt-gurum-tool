@@ -9,6 +9,7 @@
     observer: null,
     styleEl: null,
     inited: false,
+    _startScheduled: false,
   };
 
   function toMs(t) {
@@ -72,7 +73,7 @@
   function startObserver() {
     if (STATE.observer) return;
     const target = document.body;
-    if (!target) return;
+    if (!target) { scheduleObserverStart(); return; }
     const obs = new MutationObserver((mutations) => {
       if (!STATE.enabled) return;
       let work = false;
@@ -101,6 +102,26 @@
     if (STATE.observer) {
       STATE.observer.disconnect();
       STATE.observer = null;
+    }
+  }
+
+  function scheduleObserverStart() {
+    if (STATE._startScheduled) return;
+    STATE._startScheduled = true;
+    const tryStart = () => {
+      if (!STATE.enabled || STATE.observer) return;
+      const t = document.body;
+      if (t) {
+        STATE._startScheduled = false;
+        startObserver();
+        // DOM 준비 후 한 번 더 스윕
+        renderAll();
+      }
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', tryStart, { once: true });
+    } else {
+      setTimeout(tryStart, 0);
     }
   }
 

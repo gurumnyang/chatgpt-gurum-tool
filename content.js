@@ -42,22 +42,59 @@ function injectAPIHooks() {
 }
 
 // 메시지 타임스탬프 표시 스크립트 주입 및 토글
-let tsInjected = false;
+let tsScriptAppended = false;   // 스크립트 태그가 추가되었는지 여부
+let tsLoaded = false;           // 인젝터가 실제 로드되었는지 여부
+let desiredTsEnabled = null;    // 사용자가 의도한 최종 상태 (true/false)
+const tsPendingCallbacks = [];  // 로드 후 실행할 콜백 큐
+
 function injectTimestampInjector(onReady) {
-  if (tsInjected) { if (typeof onReady === 'function') try { onReady(); } catch {} return; }
-  const s = document.createElement('script');
-  s.id = 'gurum-timestamp-injector';
-  s.src = chrome.runtime.getURL('timestamp-injector.js');
-  s.onload = function() { try { if (typeof onReady === 'function') onReady(); } catch {} this.remove(); };
-  s.onerror = (e) => console.error('❌ Timestamp injector 로드 실패:', e);
-  (document.head || document.documentElement).appendChild(s);
-  tsInjected = true;
+  try {
+    if (tsLoaded) {
+      if (typeof onReady === 'function') {
+        try { onReady(); } catch (_) {}
+      }
+      return;
+    }
+    if (tsScriptAppended) {
+      if (typeof onReady === 'function') tsPendingCallbacks.push(onReady);
+      return;
+    }
+    const s = document.createElement('script');
+    s.id = 'gurum-timestamp-injector';
+    s.src = chrome.runtime.getURL('timestamp-injector.js');
+    s.onload = function() {
+      tsLoaded = true;
+      try { if (typeof onReady === 'function') onReady(); } catch (_) {}
+      // 대기 중인 콜백 처리
+      while (tsPendingCallbacks.length) {
+        const cb = tsPendingCallbacks.shift();
+        try { cb && cb(); } catch (_) {}
+      }
+      this.remove();
+    };
+    s.onerror = (e) => {
+      console.error('❌ Timestamp injector 로드 실패:', e);
+      // 재시도를 가능하게 플래그 복구
+      tsScriptAppended = false;
+      tsLoaded = false;
+    };
+    (document.head || document.documentElement).appendChild(s);
+    tsScriptAppended = true;
+  } catch (e) {
+    console.error('🚨 Timestamp injector 주입 중 오류:', e);
+  }
 }
 
 async function applyTimestampSetting(enabled) {
   try {
+    desiredTsEnabled = !!enabled;
     if (enabled) {
-      injectTimestampInjector(() => window.postMessage({ type: 'GURUM_TS_ENABLE' }, '*'));
+      injectTimestampInjector(() => {
+        // 실제 인젝터 로드가 확인된 시점에서만 ENABLE 전송
+        if (desiredTsEnabled) {
+          window.postMessage({ type: 'GURUM_TS_ENABLE' }, '*');
+        }
+      });
     } else {
       // 주입되어 있지 않아도 비활성 메시지는 안전
       window.postMessage({ type: 'GURUM_TS_DISABLE' }, '*');
