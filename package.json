@@ -13,13 +13,18 @@
     "build:firefox": "webpack --config webpack.release.firefox.js",
     "release:firefox": "npm run build && npm run build:firefox",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "prettier": "^3.3.3",
     "copy-webpack-plugin": "^13.0.1",
     "html-webpack-plugin": "^5.6.4",
     "js-tiktoken": "^1.0.21",

@@ -8,9 +8,7 @@
     "chrome": "readonly",
     "TurndownService": "readonly"
   },
-  "extends": [
-    "eslint:recommended"
-  ],
+  "extends": ["eslint:recommended", "plugin:prettier/recommended"],
   "parserOptions": {
     "ecmaVersion": 2021,
     "sourceType": "script"
@@ -29,8 +27,7 @@
       "parserOptions": {
         "sourceType": "module"
       }
-    }
-    ,
+    },
     {
       "files": ["webpack*.js"],
       "env": { "node": true },
