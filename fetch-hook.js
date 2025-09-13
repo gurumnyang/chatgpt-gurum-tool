@@ -1,9 +1,11 @@
 // fetch-hook.js — 최소 구현: conversation/init 응답에서 Deep Research 정보만 읽기
 (() => {
   const originalFetch = window.fetch;
-  const convDetailRegex = new RegExp("^https://(chat\\.openai|chatgpt)\\.com/backend-api/conversation/[0-9a-fA-F-]+$");
+  const convDetailRegex = new RegExp(
+    '^https://(chat\\.openai|chatgpt)\\.com/backend-api/conversation/[0-9a-fA-F-]+$',
+  );
 
-  window.fetch = async function(input, init) {
+  window.fetch = async function (input, init) {
     let url = '';
     if (typeof input === 'string') url = input;
     else if (input instanceof Request) url = input.url;
@@ -14,14 +16,17 @@
       try {
         const response = await originalFetch.apply(this, arguments);
         const cloned = response.clone();
-        cloned.json().then(data => {
-          if (data && Array.isArray(data.limits_progress)) {
-            const deep = data.limits_progress.find(x => x.feature_name === 'deep_research');
-            if (deep) {
-              window.postMessage({ type: 'CHATGPT_TOOL_DEEP_RESEARCH_INFO', info: deep }, '*');
+        cloned
+          .json()
+          .then((data) => {
+            if (data && Array.isArray(data.limits_progress)) {
+              const deep = data.limits_progress.find((x) => x.feature_name === 'deep_research');
+              if (deep) {
+                window.postMessage({ type: 'CHATGPT_TOOL_DEEP_RESEARCH_INFO', info: deep }, '*');
+              }
             }
-          }
-        }).catch(() => {});
+          })
+          .catch(() => {});
         return response;
       } catch (e) {
         return originalFetch.apply(this, arguments);
@@ -33,25 +38,31 @@
       try {
         const response = await originalFetch.apply(this, arguments);
         const cloned = response.clone();
-        cloned.json().then(data => {
-          try {
-            const mapping = data && (data.mapping || (data.conversation && data.conversation.mapping));
-            if (!mapping || typeof mapping !== 'object') return;
-            const msgs = [];
-            for (const key in mapping) {
-              const m = mapping[key] && mapping[key].message;
-              if (!m) continue;
-              const id = m.id;
-              const role = m.author && m.author.role;
-              const ct = Number(m.create_time);
-              if (!id || !ct) continue;
-              msgs.push({ id, role, create_time: ct });
+        cloned
+          .json()
+          .then((data) => {
+            try {
+              const mapping =
+                data && (data.mapping || (data.conversation && data.conversation.mapping));
+              if (!mapping || typeof mapping !== 'object') return;
+              const msgs = [];
+              for (const key in mapping) {
+                const m = mapping[key] && mapping[key].message;
+                if (!m) continue;
+                const id = m.id;
+                const role = m.author && m.author.role;
+                const ct = Number(m.create_time);
+                if (!id || !ct) continue;
+                msgs.push({ id, role, create_time: ct });
+              }
+              if (msgs.length) {
+                window.postMessage({ type: 'GURUM_TS_CONV_DATA', messages: msgs }, '*');
+              }
+            } catch (e) {
+              /* ignore */
             }
-            if (msgs.length) {
-              window.postMessage({ type: 'GURUM_TS_CONV_DATA', messages: msgs }, '*');
-            }
-          } catch (e) { /* ignore */ }
-        }).catch(() => {});
+          })
+          .catch(() => {});
         return response;
       } catch (e) {
         return originalFetch.apply(this, arguments);

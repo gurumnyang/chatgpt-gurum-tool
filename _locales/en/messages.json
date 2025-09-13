@@ -41,16 +41,19 @@
   "tokens_label": { "message": "tokens" },
   "max_tokens_prefix": { "message": "Max" },
 
-  "cannot_export": { "message": "Cannot export conversation. Content script is not available on the page." },
-  "cannot_copy": { "message": "Cannot copy conversation. Content script is not available on the page." },
+  "cannot_export": {
+    "message": "Cannot export conversation. Content script is not available on the page."
+  },
+  "cannot_copy": {
+    "message": "Cannot copy conversation. Content script is not available on the page."
+  },
   "export_failed": { "message": "Failed to extract conversation." },
   "copied": { "message": "Copied!" },
   "copy_failed": { "message": "Failed to copy to clipboard." },
 
   "current_plan": { "message": "Current Plan" },
   "reset_until_prefix": { "message": "Until reset:" },
-  "times_suffix": { "message": "times" }
-  ,
+  "times_suffix": { "message": "times" },
   "theme": { "message": "Theme" },
   "theme_light": { "message": "Light" },
   "theme_dark": { "message": "Dark" },
@@ -59,8 +62,7 @@
   "timestamps_label": { "message": "Message timestamps" },
   "support_title": { "message": "Support" },
   "support_desc": { "message": "If this project helps you, consider buying a coffee." },
-  "support_button": { "message": "Support on coff.ee" }
-  ,
+  "support_button": { "message": "Support on coff.ee" },
   "brand_title": { "message": "ChatGPT Gurum Tool" },
   "link_github": { "message": "GitHub" },
   "link_gallery": { "message": "Gallery" },

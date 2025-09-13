@@ -20,16 +20,15 @@
   },
   "background": {
     "service_worker": "background.js"
-  },  "content_scripts": [
+  },
+  "content_scripts": [
     {
-      "matches": [
-        "*://chat.openai.com/*",
-        "*://chatgpt.com/*"
-      ],
+      "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"],
       "js": ["content.js"],
       "run_at": "document_start"
     }
-  ],  "web_accessible_resources": [
+  ],
+  "web_accessible_resources": [
     {
       "resources": [
         "fetch-hook.js",
@@ -38,18 +37,10 @@
         "dist/tiktoken-ranks.bundle.js",
         "token-calculator.js"
       ],
-      "matches": [
-        "https://chat.openai.com/*",
-        "https://chatgpt.com/*"
-      ]
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"]
     }
-  ],"permissions": [
-    "storage",
-    "alarms",
-    "notifications",
-    "downloads",
-    "webRequest"
   ],
+  "permissions": ["storage", "alarms", "notifications", "downloads", "webRequest"],
   "host_permissions": [
     "https://chat.openai.com/*",
     "https://chatgpt.com/*",

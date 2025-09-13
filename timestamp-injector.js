@@ -21,7 +21,7 @@
   function format(ts) {
     const d = new Date(ts);
     const pad = (x) => String(x).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
   function ensureStyle() {
@@ -48,7 +48,8 @@
   }
 
   function removeStyle() {
-    if (STATE.styleEl && STATE.styleEl.parentNode) STATE.styleEl.parentNode.removeChild(STATE.styleEl);
+    if (STATE.styleEl && STATE.styleEl.parentNode)
+      STATE.styleEl.parentNode.removeChild(STATE.styleEl);
     STATE.styleEl = null;
   }
 
@@ -67,13 +68,16 @@
   }
 
   function cleanupAll() {
-    document.querySelectorAll('.chatgpt-time-container').forEach(n => n.remove());
+    document.querySelectorAll('.chatgpt-time-container').forEach((n) => n.remove());
   }
 
   function startObserver() {
     if (STATE.observer) return;
     const target = document.body;
-    if (!target) { scheduleObserverStart(); return; }
+    if (!target) {
+      scheduleObserverStart();
+      return;
+    }
     const obs = new MutationObserver((mutations) => {
       if (!STATE.enabled) return;
       let work = false;
@@ -88,13 +92,19 @@
             }
           }
         } else if (m.type === 'attributes') {
-          if (m.target && m.target.hasAttribute && m.target.hasAttribute('data-message-id')) work = true;
+          if (m.target && m.target.hasAttribute && m.target.hasAttribute('data-message-id'))
+            work = true;
         }
         if (work) break;
       }
       if (work) renderAll();
     });
-    obs.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-message-id'] });
+    obs.observe(target, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-message-id'],
+    });
     STATE.observer = obs;
   }
 
@@ -157,7 +167,7 @@
       if (!id) return;
       const role = messageDiv.getAttribute('data-message-author-role') || '';
       // 변경: 부모가 아닌 메시지 엘리먼트 내부에 삽입
-      const root = messageDiv; 
+      const root = messageDiv;
       const cls = 'chatgpt-time-container';
       const existed = root.querySelector(`.${cls}`);
       const ts = getTimestampForMessage(messageDiv);

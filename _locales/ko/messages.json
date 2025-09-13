@@ -41,27 +41,28 @@
   "tokens_label": { "message": "토큰" },
   "max_tokens_prefix": { "message": "최대" },
 
-  "cannot_export": { "message": "대화를 내보낼 수 없습니다. 페이지에서 확장 콘텐츠 스크립트를 사용할 수 없습니다." },
-  "cannot_copy": { "message": "대화를 복사할 수 없습니다. 페이지에서 확장 콘텐츠 스크립트를 사용할 수 없습니다." },
+  "cannot_export": {
+    "message": "대화를 내보낼 수 없습니다. 페이지에서 확장 콘텐츠 스크립트를 사용할 수 없습니다."
+  },
+  "cannot_copy": {
+    "message": "대화를 복사할 수 없습니다. 페이지에서 확장 콘텐츠 스크립트를 사용할 수 없습니다."
+  },
   "export_failed": { "message": "대화 추출 실패" },
   "copied": { "message": "복사됨!" },
   "copy_failed": { "message": "클립보드 복사에 실패했습니다." },
 
   "current_plan": { "message": "현재 플랜" },
   "reset_until_prefix": { "message": "리셋까지:" },
-  "times_suffix": { "message": "회" }
-  ,
+  "times_suffix": { "message": "회" },
   "theme": { "message": "테마" },
   "theme_light": { "message": "라이트" },
   "theme_dark": { "message": "다크" },
   "theme_rabbit": { "message": "토끼" },
-  "theme_cat": { "message": "고양이" }
-  ,
+  "theme_cat": { "message": "고양이" },
   "timestamps_label": { "message": "메시지 타임스탬프" },
   "support_title": { "message": "후원" },
   "support_desc": { "message": "마음에 드신다면 커피 한 잔으로 응원해 주세요." },
-  "support_button": { "message": "coff.ee에서 후원하기" }
-  ,
+  "support_button": { "message": "coff.ee에서 후원하기" },
   "brand_title": { "message": "ChatGPT 구름툴" },
   "link_github": { "message": "깃허브" },
   "link_gallery": { "message": "갤러리" },

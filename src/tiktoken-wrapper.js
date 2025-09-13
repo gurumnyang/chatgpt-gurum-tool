@@ -17,7 +17,7 @@ const MODEL_TOKEN_LIMITS = {
   // 신규 gpt-5 계열 (보수적 기본치: 128K)
   'gpt-5': 128000,
   'gpt-5-thinking': 128000,
-  'gpt-5-pro': 128000
+  'gpt-5-pro': 128000,
 };
 
 /**
@@ -27,16 +27,18 @@ const MODEL_TOKEN_LIMITS = {
  */
 const rankModules = {};
 const importers = {
-  cl100k_base: () => import(
-    /* webpackChunkName: "tiktoken-ranks" */
-    /* webpackMode: "lazy-once" */
-    'js-tiktoken/ranks/cl100k_base'
-  ),
-  o200k_base: () => import(
-    /* webpackChunkName: "tiktoken-ranks" */
-    /* webpackMode: "lazy-once" */
-    'js-tiktoken/ranks/o200k_base'
-  ),
+  cl100k_base: () =>
+    import(
+      /* webpackChunkName: "tiktoken-ranks" */
+      /* webpackMode: "lazy-once" */
+      'js-tiktoken/ranks/cl100k_base'
+    ),
+  o200k_base: () =>
+    import(
+      /* webpackChunkName: "tiktoken-ranks" */
+      /* webpackMode: "lazy-once" */
+      'js-tiktoken/ranks/o200k_base'
+    ),
 };
 
 async function importRank(name) {
@@ -49,7 +51,11 @@ async function importRank(name) {
 
 async function getEncoder(model) {
   const encodingName = (() => {
-    try { return getEncodingNameForModel(model); } catch { return 'cl100k_base'; }
+    try {
+      return getEncodingNameForModel(model);
+    } catch {
+      return 'cl100k_base';
+    }
   })();
   const table = await importRank(encodingName);
   return new Tiktoken(table, {});
@@ -84,7 +90,11 @@ function countTokens(text, model = 'gpt-4o') {
   }
   try {
     const encodingName = (() => {
-      try { return getEncodingNameForModel(model); } catch { return 'cl100k_base'; }
+      try {
+        return getEncodingNameForModel(model);
+      } catch {
+        return 'cl100k_base';
+      }
     })();
     const table = rankModules[encodingName] || rankModules.cl100k_base;
     const enc = new Tiktoken(table, {});
@@ -102,12 +112,12 @@ function countTokens(text, model = 'gpt-4o') {
  */
 function estimateTokens(text) {
   if (!text) return 0;
-  
+
   // 영어: ~4자/토큰, 한글: ~2자/토큰 근사치 계산
   const englishChars = (text.match(/[a-zA-Z\s]/g) || []).length;
   const koreanChars = (text.match(/[가-힣]/g) || []).length;
   const otherChars = text.length - englishChars - koreanChars;
-  
+
   return Math.ceil(englishChars / 4 + koreanChars / 2 + otherChars / 3);
 }
 
@@ -139,10 +149,10 @@ function getUsageRatio(tokens, model) {
  */
 function getContextStatus(tokens, model) {
   const ratio = getUsageRatio(tokens, model);
-  
+
   if (ratio >= 0.95) return 'critical'; // 95% 이상
-  if (ratio >= 0.8) return 'warning';   // 80% 이상
-  if (ratio >= 0.6) return 'caution';   // 60% 이상
+  if (ratio >= 0.8) return 'warning'; // 80% 이상
+  if (ratio >= 0.6) return 'caution'; // 60% 이상
   return 'normal';
 }
 
@@ -156,13 +166,13 @@ function formatTokenInfo(tokens, model) {
   const limit = getModelLimit(model);
   const ratio = getUsageRatio(tokens, model);
   const status = getContextStatus(tokens, model);
-  
+
   return {
     tokens,
     limit,
     ratio: Math.round(ratio * 100),
     status,
-    remaining: limit - tokens
+    remaining: limit - tokens,
   };
 }
 
@@ -174,5 +184,5 @@ export default {
   getModelLimit,
   getUsageRatio,
   getContextStatus,
-  formatTokenInfo
+  formatTokenInfo,
 };

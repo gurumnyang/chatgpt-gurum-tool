@@ -23,10 +23,7 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "*://chat.openai.com/*",
-        "*://chatgpt.com/*"
-      ],
+      "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"],
       "js": ["content.js"],
       "run_at": "document_start"
     }
@@ -40,19 +37,10 @@
         "dist/tiktoken.bundle.js",
         "dist/tiktoken-ranks.bundle.js"
       ],
-      "matches": [
-        "*://chat.openai.com/*",
-        "*://chatgpt.com/*"
-      ]
+      "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"]
     }
   ],
-  "permissions": [
-    "storage",
-    "alarms",
-    "notifications",
-    "downloads",
-    "webRequest"
-  ],
+  "permissions": ["storage", "alarms", "notifications", "downloads", "webRequest"],
   "host_permissions": [
     "https://*.openai.com/*",
     "https://chatgpt.com/*",
