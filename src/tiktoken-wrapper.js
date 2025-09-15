@@ -80,14 +80,6 @@ async function countTokensAsync(text, model = 'gpt-4o') {
 
 // 기존 동기 API 호환을 위한 래퍼(최초 호출 시 블로킹될 수 있음)
 function countTokens(text, model = 'gpt-4o') {
-  // 이미 랭크가 로드된 경우는 동기로 처리
-  if (!rankModules.cl100k_base && !rankModules.o200k_base) {
-    // 동기 환경에서도 사용 가능하도록 busy-wait를 피하고 근사치 반환
-    // 정확도가 필요한 경우 token-calculator에서 비동기 메시지 기반 계산 권장
-    // 즉시 사용을 위해 근사치, 이후 비동기 로드가 완료되면 다음 호출부터 정확값
-    importRank('cl100k_base').catch(() => {});
-    return estimateTokens(text);
-  }
   try {
     const encodingName = (() => {
       try {
@@ -96,7 +88,22 @@ function countTokens(text, model = 'gpt-4o') {
         return 'cl100k_base';
       }
     })();
-    const table = rankModules[encodingName] || rankModules.cl100k_base;
+
+    // 필요한 인코딩이 아직 로드되지 않았다면 백그라운드에서 로드 시도
+    if (!rankModules[encodingName]) {
+      importRank(encodingName).catch(() => {});
+    }
+    // cl100k_base는 많은 모델이 공유하므로 기본적으로 프리로드
+    if (!rankModules.cl100k_base && encodingName !== 'cl100k_base') {
+      importRank('cl100k_base').catch(() => {});
+    }
+
+    const table = rankModules[encodingName];
+    if (!table) {
+      // 인코딩 테이블이 아직 준비되지 않으면 근사치 반환
+      return estimateTokens(text);
+    }
+
     const enc = new Tiktoken(table, {});
     return enc.encode(text).length;
   } catch (e) {
