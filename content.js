@@ -50,6 +50,24 @@ let tsScriptAppended = false; // 스크립트 태그가 추가되었는지 여�
 let tsLoaded = false; // 인젝터가 실제 로드되었는지 여부
 let desiredTsEnabled = null; // 사용자가 의도한 최종 상태 (true/false)
 const tsPendingCallbacks = []; // 로드 후 실행할 콜백 큐
+let currentTimestampFormat = 'standard';
+
+function validateTimestampFormat(value) {
+  const allowed = ['standard', 'compact', 'relative'];
+  return allowed.includes(value) ? value : 'standard';
+}
+
+function dispatchTimestampFormat() {
+  const format = currentTimestampFormat;
+  const send = () => {
+    window.postMessage({ type: 'GURUM_TS_SET_FORMAT', format }, '*');
+  };
+  if (tsLoaded) {
+    send();
+  } else {
+    tsPendingCallbacks.push(send);
+  }
+}
 
 function injectTimestampInjector(onReady) {
   try {
@@ -99,6 +117,7 @@ async function applyTimestampSetting(enabled) {
   try {
     desiredTsEnabled = !!enabled;
     if (enabled) {
+      dispatchTimestampFormat();
       injectTimestampInjector(() => {
         // 실제 인젝터 로드가 확인된 시점에서만 ENABLE 전송
         if (desiredTsEnabled) {
@@ -168,8 +187,10 @@ try {
   if (chrome.runtime.id) {
     injectAPIHooks();
     injectTiktokenLibrary();
-    // 초기 타임스탬프 설정 적용
-    chrome.storage.local.get('showTimestamps', (data) => {
+    // 초기 타임스탬프 설정 및 형식 적용
+    chrome.storage.local.get(['showTimestamps', 'timestampFormat'], (data) => {
+      currentTimestampFormat = validateTimestampFormat(data.timestampFormat);
+      dispatchTimestampFormat();
       applyTimestampSetting(!!data.showTimestamps);
     });
     console.log('✅ 확장 프로그램 컨텍스트 유효, API 후킹 시작');
@@ -262,6 +283,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   try {
     if (message.type === 'applyTimestampSetting') {
       applyTimestampSetting(!!message.enabled);
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === 'applyTimestampFormat') {
+      currentTimestampFormat = validateTimestampFormat(message.format);
+      dispatchTimestampFormat();
       sendResponse({ ok: true });
       return true;
     }
@@ -385,6 +412,11 @@ try {
     if (Object.prototype.hasOwnProperty.call(changes, 'showTimestamps')) {
       const nv = changes.showTimestamps.newValue;
       applyTimestampSetting(!!nv);
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, 'timestampFormat')) {
+      const nv = validateTimestampFormat(changes.timestampFormat.newValue);
+      currentTimestampFormat = nv;
+      dispatchTimestampFormat();
     }
   });
 } catch {}

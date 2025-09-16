@@ -398,6 +398,10 @@ chrome.runtime.onInstalled.addListener((details) => {
     try {
       // 초기 설치 및 업데이트 시 타임스탬프 표시 기본값을 활성화
       await chrome.storage.local.set({ showTimestamps: true });
+      const { timestampFormat } = await chrome.storage.local.get('timestampFormat');
+      if (!timestampFormat) {
+        await chrome.storage.local.set({ timestampFormat: 'standard' });
+      }
     } catch (_) {}
     // load locale override
     const { userLocale } = await chrome.storage.local.get('userLocale');

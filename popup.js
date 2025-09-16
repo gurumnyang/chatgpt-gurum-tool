@@ -604,3 +604,21 @@ if (toggleTimestamps) {
     });
   });
 }
+
+// Timestamp format select
+const timestampFormatSelect = document.getElementById('timestampFormatSelect');
+if (timestampFormatSelect) {
+  chrome.storage.local.get('timestampFormat', (data) => {
+    const v = data.timestampFormat || 'standard';
+    timestampFormatSelect.value = v;
+  });
+  timestampFormatSelect.addEventListener('change', async () => {
+    const format = timestampFormatSelect.value || 'standard';
+    await new Promise((r) => chrome.storage.local.set({ timestampFormat: format }, r));
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs && tabs[0];
+      if (!tab) return;
+      chrome.tabs.sendMessage(tab.id, { type: 'applyTimestampFormat', format });
+    });
+  });
+}

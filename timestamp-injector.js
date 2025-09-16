@@ -10,6 +10,9 @@
     styleEl: null,
     inited: false,
     _startScheduled: false,
+    format: 'standard',
+    compactFormatter: null,
+    relativeFormatter: null,
   };
 
   function toMs(t) {
@@ -18,10 +21,74 @@
     return n < 1e10 ? Math.round(n * 1000) : Math.round(n);
   }
 
-  function format(ts) {
+  function formatStandard(ts) {
     const d = new Date(ts);
     const pad = (x) => String(x).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  function formatCompact(ts) {
+    if (!STATE.compactFormatter) {
+      if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
+        STATE.compactFormatter = null;
+      } else {
+        STATE.compactFormatter = new Intl.DateTimeFormat(navigator.language || 'en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      }
+    }
+    if (!STATE.compactFormatter) return formatStandard(ts);
+    return STATE.compactFormatter.format(new Date(ts));
+  }
+
+  function getRelativeFormatter() {
+    if (!STATE.relativeFormatter) {
+      if (typeof Intl === 'undefined' || typeof Intl.RelativeTimeFormat !== 'function') {
+        STATE.relativeFormatter = null;
+      } else {
+        STATE.relativeFormatter = new Intl.RelativeTimeFormat(navigator.language || 'en-US', {
+          numeric: 'auto',
+        });
+      }
+    }
+    return STATE.relativeFormatter;
+  }
+
+  function formatRelative(ts) {
+    const diffSeconds = Math.round((ts - Date.now()) / 1000);
+    const abs = Math.abs(diffSeconds);
+    const rtf = getRelativeFormatter();
+    if (!rtf) return formatStandard(ts);
+    if (abs < 60) return rtf.format(diffSeconds, 'second');
+    if (abs < 3600) return rtf.format(Math.round(diffSeconds / 60), 'minute');
+    if (abs < 86400) return rtf.format(Math.round(diffSeconds / 3600), 'hour');
+    if (abs < 604800) return rtf.format(Math.round(diffSeconds / 86400), 'day');
+    if (abs < 2629800) return rtf.format(Math.round(diffSeconds / 604800), 'week');
+    return rtf.format(Math.round(diffSeconds / 2629800), 'month');
+  }
+
+  function formatTimestamp(ts) {
+    switch (STATE.format) {
+      case 'compact':
+        return formatCompact(ts);
+      case 'relative':
+        return formatRelative(ts);
+      default:
+        return formatStandard(ts);
+    }
+  }
+
+  function setFormatStyle(fmt) {
+    const allowed = ['standard', 'compact', 'relative'];
+    const next = allowed.includes(fmt) ? fmt : 'standard';
+    if (STATE.format !== next) {
+      STATE.format = next;
+      if (STATE.enabled) renderAll();
+    }
   }
 
   function ensureStyle() {
@@ -171,7 +238,7 @@
       const cls = 'chatgpt-time-container';
       const existed = root.querySelector(`.${cls}`);
       const ts = getTimestampForMessage(messageDiv);
-      const html = `<span class="${cls} ${role}">${format(ts)}</span>`;
+      const html = `<span class="${cls} ${role}">${formatTimestamp(ts)}</span>`;
       if (existed) {
         existed.outerHTML = html; // 기존 라벨 교체
       } else {
@@ -192,6 +259,8 @@
         setEnabled(true);
       } else if (d.type === 'GURUM_TS_DISABLE') {
         setEnabled(false);
+      } else if (d.type === 'GURUM_TS_SET_FORMAT') {
+        setFormatStyle(d.format);
       } else if (d.type === 'GURUM_TS_CONV_DATA' && Array.isArray(d.messages)) {
         for (const m of d.messages) {
           if (!m || !m.id) continue;

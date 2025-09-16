@@ -577,6 +577,15 @@
         </label>
       </div>
 
+      <div class="model-item">
+        <span class="model-name" data-i18n="timestamp_format_label">타임스탬프 형식</span>
+        <select id="timestampFormatSelect" aria-label="Timestamp format">
+          <option value="standard" data-i18n="timestamp_format_standard">표준 (2025-01-31 12:34:56)</option>
+          <option value="compact" data-i18n="timestamp_format_compact">간단 (2025/01/31 12:34)</option>
+          <option value="relative" data-i18n="timestamp_format_relative">상대 시간</option>
+        </select>
+      </div>
+
       <div class="model-item" style="flex-direction: column; align-items: stretch; gap: 8px">
         <span class="model-name" data-i18n="model_limit_sync">모델 한도 동기화</span>
         <div id="lastPlanSync" style="font-size: 12px; color: var(--muted)">마지막 동기화: -</div>
