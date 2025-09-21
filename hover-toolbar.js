@@ -56,7 +56,13 @@
   ];
 
   const HOVER_TOOLBAR_STYLE = `
+
+    /* 채팅창 패딩 무력화ㅡ툴바때문에 여백이 늘어나는거 방지 */
+    .pb-25 {
+      padding-bottom: 0 !important;
+      }
     #${HOVER_TOOLBAR_ID} {
+      contain: layout;
       width: 100%;
       display: flex;
       justify-content: stretch;
