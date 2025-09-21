@@ -1,20 +1,205 @@
-// fetch-hook.js — 최소 구현: conversation/init 응답에서 Deep Research 정보만 읽기
+// fetch-hook.js — conversation API 가로채기 및 Deep Research/타임스탬프 수집
 (() => {
   const originalFetch = window.fetch;
   const convDetailRegex = new RegExp(
-    '^https://(chat\\.openai|chatgpt)\\.com/backend-api/conversation/[0-9a-fA-F-]+$',
+    '^https://(chat\\.openai|chatgpt)\\.com/backend-api/(?:[a-z-]+/)?conversation/[0-9a-fA-F-]+$',
   );
+  const conversationSendRegex = /\/backend-api\/(?:[\w-]+\/)*conversation(?:$|\?|\/)/;
+
+  const promptState = {
+    toneDirective: null,
+    promptText: null,
+    includeTimestamp: false,
+  };
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.type !== 'GURUM_PROMPT_STATE') return;
+    const payload = data.payload || {};
+    promptState.toneDirective =
+      typeof payload.toneDirective === 'string' && payload.toneDirective.trim()
+        ? payload.toneDirective
+        : null;
+    promptState.promptText =
+      typeof payload.promptText === 'string' && payload.promptText.trim()
+        ? payload.promptText
+        : null;
+    promptState.includeTimestamp = !!payload.includeTimestamp;
+  });
+
+  function hasPromptSegments() {
+    return (
+      (promptState.toneDirective && promptState.toneDirective.trim()) ||
+      (promptState.promptText && promptState.promptText.trim()) ||
+      promptState.includeTimestamp
+    );
+  }
+
+  function formatCurrentTimestamp() {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(
+      now.getHours(),
+    )}:${pad(now.getMinutes())}`;
+  }
+
+  function findMessagePartIndex(message) {
+    if (!message || !message.content) return -1;
+    const parts = Array.isArray(message.content.parts)
+      ? message.content.parts
+      : Array.isArray(message.content)
+        ? message.content
+        : null;
+    if (!parts || !parts.length) return -1;
+    if (message.content.content_type !== 'multimodal_text') {
+      return 0;
+    }
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (typeof part === 'string') return i;
+      if (part && typeof part === 'object') {
+        if (typeof part.text === 'string') return i;
+        if (typeof part.content === 'string') return i;
+        if (typeof part.value === 'string') return i;
+      }
+    }
+    return -1;
+  }
+
+  function getMessagePartAccessor(message) {
+    if (!message || !message.content) return null;
+    const parts = Array.isArray(message.content.parts)
+      ? message.content.parts
+      : Array.isArray(message.content)
+        ? message.content
+        : null;
+    if (!parts || !parts.length) return null;
+    const index = findMessagePartIndex(message);
+    if (index < 0 || index >= parts.length) return null;
+    return {
+      get() {
+        const current = parts[index];
+        if (typeof current === 'string') return current;
+        if (current && typeof current.text === 'string') return current.text;
+        if (current && typeof current.content === 'string') return current.content;
+        if (current && typeof current.value === 'string') return current.value;
+        return '';
+      },
+      set(value) {
+        const current = parts[index];
+        if (typeof current === 'string') {
+          parts[index] = value;
+        } else if (current && typeof current === 'object') {
+          if (typeof current.text === 'string') current.text = value;
+          else if (typeof current.content === 'string') current.content = value;
+          else if (typeof current.value === 'string') current.value = value;
+          else parts[index] = value;
+        } else {
+          parts[index] = value;
+        }
+      },
+    };
+  }
+
+  function injectPromptSegments(payload) {
+    if (!hasPromptSegments()) return false;
+    if (!payload || !Array.isArray(payload.messages) || !payload.messages.length) return false;
+    const accessor = getMessagePartAccessor(payload.messages[0]);
+    if (!accessor) return false;
+    const original = accessor.get();
+    const tone = promptState.toneDirective ? promptState.toneDirective.trim() : '';
+    const prompt = promptState.promptText ? promptState.promptText.trim() : '';
+    const segments = [];
+    if (tone) segments.push(tone);
+    if (prompt) segments.push(prompt);
+    if (promptState.includeTimestamp) {
+      segments.push(`현재 시각: ${formatCurrentTimestamp()}`);
+    }
+    if (!segments.length) return false;
+    const base = typeof original === 'string' ? original.trimStart() : '';
+    if (base) segments.push(base);
+    const finalText = segments.join('\n\n');
+    accessor.set(finalText);
+    return true;
+  }
 
   window.fetch = async function (input, init) {
     let url = '';
     if (typeof input === 'string') url = input;
     else if (input instanceof Request) url = input.url;
-    else if (input && input.url) url = input.url;
+    else if (input && typeof input.url === 'string') url = input.url;
 
-    // 오직 conversation/init 응답만 확인
-    if (url && url.includes('/conversation/init')) {
+    let requestInfo = input;
+    let requestInit = init;
+
+    const isConversationInit = typeof url === 'string' && url.includes('/conversation/init');
+    const isConversationDetail =
+      (typeof url === 'string' && url.startsWith('/backend-api/conversation/')) ||
+      (url && convDetailRegex.test(url));
+
+    try {
+      const targetForInjection =
+        url && !isConversationDetail && !isConversationInit && conversationSendRegex.test(url);
+
+      if (targetForInjection && hasPromptSegments()) {
+        const baseInit = { ...(init || {}) };
+        const requestObj = input instanceof Request ? input : null;
+
+        if (requestObj) {
+          if (baseInit.method == null && requestObj.method) baseInit.method = requestObj.method;
+          if (baseInit.headers == null && requestObj.headers)
+            baseInit.headers = new Headers(requestObj.headers);
+          if (baseInit.credentials == null) baseInit.credentials = requestObj.credentials;
+          if (baseInit.mode == null) baseInit.mode = requestObj.mode;
+          if (baseInit.cache == null) baseInit.cache = requestObj.cache;
+          if (baseInit.redirect == null) baseInit.redirect = requestObj.redirect;
+          if (baseInit.referrer == null) baseInit.referrer = requestObj.referrer;
+          if (baseInit.referrerPolicy == null) baseInit.referrerPolicy = requestObj.referrerPolicy;
+          if (baseInit.integrity == null) baseInit.integrity = requestObj.integrity;
+          if (baseInit.keepalive == null) baseInit.keepalive = requestObj.keepalive;
+          if (baseInit.signal == null) baseInit.signal = requestObj.signal;
+        }
+
+        let method = baseInit.method || (requestObj && requestObj.method) || 'GET';
+        method = typeof method === 'string' ? method.toUpperCase() : 'GET';
+
+        if (method === 'POST') {
+          let bodyText = typeof baseInit.body === 'string' ? baseInit.body : null;
+
+          if (!bodyText && input instanceof Request) {
+            try {
+              bodyText = await input.clone().text();
+              if (bodyText) baseInit.body = bodyText;
+            } catch (_) {
+              bodyText = null;
+            }
+          }
+
+          if (typeof bodyText === 'string' && bodyText) {
+            try {
+              const payload = JSON.parse(bodyText);
+              if (injectPromptSegments(payload)) {
+                const newBody = JSON.stringify(payload);
+                baseInit.body = newBody;
+                baseInit.method = method;
+                requestInfo = url;
+                requestInit = baseInit;
+              }
+            } catch (error) {
+              console.warn('대화 요청 파싱 중 오류:', error);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('프롬프트 주입 준비 중 오류:', error);
+    }
+
+    const response = await originalFetch.call(this, requestInfo, requestInit);
+
+    if (isConversationInit) {
       try {
-        const response = await originalFetch.apply(this, arguments);
         const cloned = response.clone();
         cloned
           .json()
@@ -27,16 +212,11 @@
             }
           })
           .catch(() => {});
-        return response;
-      } catch (e) {
-        return originalFetch.apply(this, arguments);
-      }
+      } catch (_) {}
     }
 
-    // 대화 상세(히스토리) 페치 시 메시지 타임스탬프 수집
-    if (url && convDetailRegex.test(url)) {
+    if (isConversationDetail) {
       try {
-        const response = await originalFetch.apply(this, arguments);
         const cloned = response.clone();
         cloned
           .json()
@@ -63,12 +243,9 @@
             }
           })
           .catch(() => {});
-        return response;
-      } catch (e) {
-        return originalFetch.apply(this, arguments);
-      }
+      } catch (_) {}
     }
 
-    return originalFetch.apply(this, arguments);
+    return response;
   };
 })();

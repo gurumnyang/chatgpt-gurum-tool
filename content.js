@@ -1,6 +1,29 @@
 // content script 로직: ChatGPT 웹 페이지 DOM 접근 및 조작 담당
 console.log('Content script 로드됨. DOM 조작 및 메시지 처리 준비 완료.');
 
+const hoverToolbarModule = window.GurumHoverToolbar || {};
+const initializeHoverToolbar =
+  typeof hoverToolbarModule.initializeHoverToolbar === 'function'
+    ? hoverToolbarModule.initializeHoverToolbar
+    : () => {};
+const applyHoverToolbarTheme =
+  typeof hoverToolbarModule.applyHoverToolbarTheme === 'function'
+    ? hoverToolbarModule.applyHoverToolbarTheme
+    : () => {};
+const HOVER_THEME_STORAGE_KEY =
+  typeof hoverToolbarModule.HOVER_THEME_STORAGE_KEY === 'string'
+    ? hoverToolbarModule.HOVER_THEME_STORAGE_KEY
+    : 'popupTheme';
+
+function onDocumentReady(callback) {
+  if (typeof callback !== 'function') return;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', callback, { once: true });
+  } else {
+    callback();
+  }
+}
+
 // tiktoken 라이브러리 로드 (페이지에 주입)
 function injectTiktokenLibrary() {
   const tiktokenBundleScript = document.createElement('script');
@@ -219,9 +242,9 @@ window.addEventListener('message', (event) => {
 });
 
 // DOM이 완전히 로드된 후 초기화
-document.addEventListener('DOMContentLoaded', () => {
-  // 페이지 분석 및 필요한 DOM 요소 관찰 등 초기화 작업
+onDocumentReady(() => {
   observeConversation();
+  initializeHoverToolbar();
 });
 
 // 대화 영역 변경사항 관찰 (새 메시지 등을 감지)
@@ -417,6 +440,9 @@ try {
       const nv = validateTimestampFormat(changes.timestampFormat.newValue);
       currentTimestampFormat = nv;
       dispatchTimestampFormat();
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, HOVER_THEME_STORAGE_KEY)) {
+      applyHoverToolbarTheme(changes[HOVER_THEME_STORAGE_KEY].newValue);
     }
   });
 } catch {}
