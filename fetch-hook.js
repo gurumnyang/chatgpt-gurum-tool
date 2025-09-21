@@ -39,9 +39,18 @@
   function formatCurrentTimestamp() {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
-    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(
+    const localDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(
       now.getHours(),
     )}:${pad(now.getMinutes())}`;
+
+    const offsetMinutes = -now.getTimezoneOffset(); // minutes ahead of UTC
+    const sign = offsetMinutes >= 0 ? '+' : '-';
+    const absMinutes = Math.abs(offsetMinutes);
+    const offsetHours = Math.floor(absMinutes / 60);
+    const offsetRemainMinutes = absMinutes % 60;
+    const offsetText = `UTC${sign}${pad(offsetHours)}:${pad(offsetRemainMinutes)}`;
+
+    return `${localDate} (${offsetText})`;
   }
 
   function findMessagePartIndex(message) {
@@ -105,19 +114,27 @@
   function injectPromptSegments(payload) {
     if (!hasPromptSegments()) return false;
     if (!payload || !Array.isArray(payload.messages) || !payload.messages.length) return false;
+
     const accessor = getMessagePartAccessor(payload.messages[0]);
     if (!accessor) return false;
+
     const original = accessor.get();
+
     const tone = promptState.toneDirective ? promptState.toneDirective.trim() : '';
     const prompt = promptState.promptText ? promptState.promptText.trim() : '';
-    const segments = [];
-    if (tone) segments.push(tone);
-    if (prompt) segments.push(prompt);
+    const infoSegments = [];
+
     if (promptState.includeTimestamp) {
-      segments.push(`현재 시각: ${formatCurrentTimestamp()}`);
+      infoSegments.push(`Current: ${formatCurrentTimestamp()}`);
     }
-    if (!segments.length) return false;
+    if (tone) infoSegments.push(tone);
+    if (prompt) infoSegments.push(prompt);
+
+    if (!infoSegments.length) return false;
+
     const base = typeof original === 'string' ? original.trimStart() : '';
+    const generatedBlock = `<info>\n//Generated automatically\n${infoSegments.join('\n\n')}\n</info>`;
+    const segments = [generatedBlock];
     if (base) segments.push(base);
     const finalText = segments.join('\n\n');
     accessor.set(finalText);

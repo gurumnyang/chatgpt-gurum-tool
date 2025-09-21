@@ -1,6 +1,8 @@
 // content script 로직: ChatGPT 웹 페이지 DOM 접근 및 조작 담당
 console.log('Content script 로드됨. DOM 조작 및 메시지 처리 준비 완료.');
 
+const SCROLL_CONTROLS_ID = 'gurum-scroll-controls';
+const SCROLL_CONTROLS_STYLE_ID = 'gurum-scroll-controls-style';
 const hoverToolbarModule = window.GurumHoverToolbar || {};
 const initializeHoverToolbar =
   typeof hoverToolbarModule.initializeHoverToolbar === 'function'
@@ -22,6 +24,129 @@ function onDocumentReady(callback) {
   } else {
     callback();
   }
+}
+
+function injectScrollControlsStyles() {
+  if (document.getElementById(SCROLL_CONTROLS_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = SCROLL_CONTROLS_STYLE_ID;
+  style.textContent = `
+    #${SCROLL_CONTROLS_ID} {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 9999;
+    }
+
+    #${SCROLL_CONTROLS_ID} button {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(52, 58, 64, 0.9);
+      color: #f8f9fa;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+      opacity: 0.85;
+    }
+
+    #${SCROLL_CONTROLS_ID} button:hover {
+      opacity: 1;
+      transform: translateY(-2px);
+    }
+
+    #${SCROLL_CONTROLS_ID} button:active {
+      transform: translateY(0);
+    }
+
+    #${SCROLL_CONTROLS_ID} button svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    #${SCROLL_CONTROLS_ID}[data-hidden='true'] {
+      display: none;
+    }
+  `;
+  document.documentElement.appendChild(style);
+}
+
+function createScrollControls() {
+  if (document.getElementById(SCROLL_CONTROLS_ID)) return;
+  injectScrollControlsStyles();
+
+  const container = document.createElement('div');
+  container.id = SCROLL_CONTROLS_ID;
+
+  // 스크롤 대상 엘리먼트 탐색 헬퍼
+  // ChatGPT UI는 tailwind 유틸 클래스 조합을 사용하므로 overflow-y-auto 를 기준으로 가장 적절한 flex column 컨테이너를 선택
+  function getScrollTarget() {
+    // 가장 먼저 명시적으로 overflow-y-auto 가 포함된 div 후보 수집
+    const candidates = Array.from(
+      document.querySelectorAll('div[class*="overflow-y-auto"]') || [],
+    );
+    // 우선순위: flex + flex-col + h-full
+    const fullMatch = candidates.find((el) => {
+      const cls = el.className || '';
+      return (
+        cls.includes('overflow-y-auto') &&
+        cls.includes('flex') &&
+        cls.includes('flex-col') &&
+        (cls.includes('h-full') || cls.includes('h-screen'))
+      );
+    });
+    if (fullMatch) return fullMatch;
+    // 차선: overflow-y-auto 만 있는 첫 번째
+    if (candidates.length) return candidates[0];
+    // 폴백: 문서 기본 스크롤 요소
+    return document.scrollingElement || document.documentElement || document.body;
+  }
+
+  const upButton = document.createElement('button');
+  upButton.setAttribute('aria-label', '맨 위로 이동');
+  upButton.innerHTML = `
+    <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+      <path d="M9.33468 3.33333C9.33468 2.96617 9.6326 2.66847 9.99972 2.66829C10.367 2.66829 10.6648 2.96606 10.6648 3.33333V15.0609L15.363 10.3626L15.4675 10.2777C15.7255 10.1074 16.0762 10.1357 16.3034 10.3626C16.5631 10.6223 16.5631 11.0443 16.3034 11.304L10.4704 17.137C10.2108 17.3967 9.7897 17.3966 9.52999 17.137L3.69601 11.304L3.61105 11.1995C3.44054 10.9414 3.46874 10.5899 3.69601 10.3626C3.92328 10.1354 4.27479 10.1072 4.53292 10.2777L4.63741 10.3626L9.33468 15.0599V3.33333Z"></path>
+    </svg>
+  `;
+  upButton.querySelector('svg').style.transform = 'rotate(180deg)';
+  upButton.addEventListener('click', () => {
+    const target = getScrollTarget();
+    try {
+      target.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      // 일부 요소 (예: documentElement)에서 smooth 지원이 제한될 경우 폴백
+      target.scrollTop = 0;
+    }
+  });
+
+  const downButton = document.createElement('button');
+  downButton.setAttribute('aria-label', '맨 아래로 이동');
+  downButton.innerHTML = `
+    <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+      <path d="M9.33468 3.33333C9.33468 2.96617 9.6326 2.66847 9.99972 2.66829C10.367 2.66829 10.6648 2.96606 10.6648 3.33333V15.0609L15.363 10.3626L15.4675 10.2777C15.7255 10.1074 16.0762 10.1357 16.3034 10.3626C16.5631 10.6223 16.5631 11.0443 16.3034 11.304L10.4704 17.137C10.2108 17.3967 9.7897 17.3966 9.52999 17.137L3.69601 11.304L3.61105 11.1995C3.44054 10.9414 3.46874 10.5899 3.69601 10.3626C3.92328 10.1354 4.27479 10.1072 4.53292 10.2777L4.63741 10.3626L9.33468 15.0599V3.33333Z"></path>
+    </svg>
+  `;
+  downButton.addEventListener('click', () => {
+    const target = getScrollTarget();
+    const maxScroll = target.scrollHeight; // 대상 요소의 전체 높이
+    try {
+      target.scrollTo({ top: maxScroll, behavior: 'smooth' });
+    } catch {
+      target.scrollTop = maxScroll;
+    }
+  });
+
+  container.append(upButton, downButton);
+  document.body.appendChild(container);
 }
 
 // tiktoken 라이브러리 로드 (페이지에 주입)
@@ -245,6 +370,7 @@ window.addEventListener('message', (event) => {
 onDocumentReady(() => {
   observeConversation();
   initializeHoverToolbar();
+  createScrollControls();
 });
 
 // 대화 영역 변경사항 관찰 (새 메시지 등을 감지)
