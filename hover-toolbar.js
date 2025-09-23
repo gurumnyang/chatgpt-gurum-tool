@@ -67,6 +67,8 @@
       display: flex;
       justify-content: stretch;
       margin-bottom: 8px;
+      position: relative;
+      z-index: 9998;
     }
 
     #${HOVER_TOOLBAR_ID} .gurum-inline-groups {
@@ -234,7 +236,7 @@
       transform: translateY(-6px) scale(0.98);
       pointer-events: none;
       transition: opacity 0.18s ease, transform 0.18s ease;
-      z-index: 4;
+      z-index: 10000;
     }
 
     #${HOVER_TOOLBAR_ID} .gurum-dropdown[data-dropdown-type='tone'] .gurum-dropdown-panel,
