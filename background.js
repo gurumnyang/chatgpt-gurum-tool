@@ -573,7 +573,8 @@ try {
         // POST /backend-api/(f/)?conversation 만 대상
         if (details.method !== 'POST') return;
         const u = details.url || '';
-        if (!/^\/backend-api\/(?:f\/)?conversation(?:\/)?$/.test(u)) return;
+        const test = new URL(u).pathname;
+        if (!/^\/backend-api\/(?:f\/)?conversation(?:\/)?$/.test(test)) return;
 
         // requestBody에서 JSON 파싱
         const rb = details.requestBody;
