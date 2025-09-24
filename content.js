@@ -16,6 +16,10 @@ const HOVER_THEME_STORAGE_KEY =
   typeof hoverToolbarModule.HOVER_THEME_STORAGE_KEY === 'string'
     ? hoverToolbarModule.HOVER_THEME_STORAGE_KEY
     : 'popupTheme';
+const setHoverToolbarEnabled =
+  typeof hoverToolbarModule.setHoverToolbarEnabled === 'function'
+    ? hoverToolbarModule.setHoverToolbarEnabled
+    : () => {};
 
 function onDocumentReady(callback) {
   if (typeof callback !== 'function') return;
@@ -438,6 +442,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'applyTimestampFormat') {
       currentTimestampFormat = validateTimestampFormat(message.format);
       dispatchTimestampFormat();
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === 'setHoverToolbarEnabled') {
+      setHoverToolbarEnabled(!!message.enabled);
       sendResponse({ ok: true });
       return true;
     }

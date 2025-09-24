@@ -5,6 +5,7 @@
   const HOVER_STORAGE_KEYS = {
     tone: 'hoverToolbarTone',
     timestamp: 'hoverToolbarIncludeTimestamp',
+    enabled: 'hoverToolbarEnabled',
   };
 
   const HOVER_TONE_PRESETS = [
@@ -148,6 +149,101 @@
     #${HOVER_TOOLBAR_ID} .gurum-section--prompt {
       flex: 0 0 150px;
       min-width: 150px;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      margin-left: auto;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-button {
+      width: 25px;
+      height: 25px;
+      border-radius: 50%;
+      border: 1px solid var(--control-border);
+      background: var(--control-bg);
+      color: var(--body-text);
+      font-size: 16px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.18s ease, border 0.18s ease, color 0.18s ease, transform 0.18s ease;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-button:hover,
+    #${HOVER_TOOLBAR_ID} .gurum-info-button:focus {
+      background: var(--control-hover-bg);
+      border-color: var(--control-hover-border);
+      color: var(--control-hover-text);
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-button:focus-visible {
+      outline: 2px solid var(--control-hover-border);
+      outline-offset: 2px;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-tooltip {
+      position: absolute;
+      top: calc(100%);
+      right: -10;
+      width: min(260px, 70vw);
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--dropdown-bg);
+      border: 1px solid var(--dropdown-border);
+      box-shadow: var(--dropdown-shadow);
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--body-text);
+      opacity: 0;
+      transform: translateY(-6px) scale(0.98);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      z-index: 10001;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-tooltip strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--control-hover-text);
+      font-size: 13px;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-tooltip a {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--label-color);
+      text-decoration: underline;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-tooltip a:hover {
+      color: var(--control-hover-text);
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-tooltip::before {
+      content: '';
+      position: absolute;
+      top: -7px;
+      right: 16px;
+      width: 12px;
+      height: 12px;
+      background: inherit;
+      border-left: 1px solid var(--dropdown-border);
+      border-top: 1px solid var(--dropdown-border);
+      transform: rotate(45deg);
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-info-wrapper[data-open='true'] .gurum-info-tooltip {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
     }
 
     #${HOVER_TOOLBAR_ID} .gurum-section-label {
@@ -329,6 +425,7 @@
     includeTimestamp: false,
     selectedPromptId: null,
     theme: 'light',
+    enabled: true,
     composerEl: null,
     observer: null,
     checkTimer: null,
@@ -358,7 +455,12 @@
       if (typeof onReady === 'function') onReady();
       return;
     }
-    const keys = [HOVER_STORAGE_KEYS.tone, HOVER_STORAGE_KEYS.timestamp, HOVER_THEME_STORAGE_KEY];
+    const keys = [
+      HOVER_STORAGE_KEYS.tone,
+      HOVER_STORAGE_KEYS.timestamp,
+      HOVER_THEME_STORAGE_KEY,
+      HOVER_STORAGE_KEYS.enabled,
+    ];
     chrome.storage.local.get(keys, (res) => {
       try {
         if (res && typeof res[HOVER_STORAGE_KEYS.tone] === 'string') {
@@ -372,6 +474,9 @@
         }
         if (res && typeof res[HOVER_THEME_STORAGE_KEY] === 'string') {
           applyHoverToolbarTheme(res[HOVER_THEME_STORAGE_KEY]);
+        }
+        if (res && typeof res[HOVER_STORAGE_KEYS.enabled] === 'boolean') {
+          hoverToolbarState.enabled = res[HOVER_STORAGE_KEYS.enabled];
         }
       } catch (e) {
         console.warn('호버 툴바 설정 로드 실패:', e);
@@ -425,6 +530,11 @@
   }
 
   function attachHoverToolbarIfNeeded() {
+    if (!hoverToolbarState.enabled) {
+      cleanupHoverToolbarElements();
+      hoverToolbarState.composerEl = null;
+      return;
+    }
     const composer = findComposerWrapper();
     const existing = document.getElementById(HOVER_TOOLBAR_ID);
 
@@ -516,6 +626,13 @@
   function getPromptInjectionState() {
     const toneDirective = buildToneDirectiveText() || null;
     const promptText = getSelectedPromptText();
+    if (!hoverToolbarState.enabled) {
+      return {
+        toneDirective: null,
+        promptText: null,
+        includeTimestamp: false,
+      };
+    }
     return {
       toneDirective: toneDirective || null,
       promptText: promptText || null,
@@ -808,7 +925,31 @@
     const promptSection = buildPromptSection();
     promptSection.section.style.display = 'none';
 
-    groups.append(timestampSection.section, toneSection.section);
+    const infoWrapper = document.createElement('div');
+    infoWrapper.className = 'gurum-info-wrapper';
+    infoWrapper.setAttribute('data-open', 'false');
+
+    const infoButton = document.createElement('button');
+    infoButton.type = 'button';
+    infoButton.className = 'gurum-info-button';
+    infoButton.setAttribute('aria-label', '구름툴 신기능 안내');
+    infoButton.innerHTML = '<span aria-hidden="true">?</span>';
+
+    const infoTooltip = document.createElement('div');
+    infoTooltip.className = 'gurum-info-tooltip';
+    infoTooltip.setAttribute('role', 'tooltip');
+
+    const openInfo = () => infoWrapper.setAttribute('data-open', 'true');
+    const closeInfo = () => infoWrapper.setAttribute('data-open', 'false');
+
+    infoWrapper.addEventListener('mouseenter', openInfo);
+    infoWrapper.addEventListener('mouseleave', closeInfo);
+    infoButton.addEventListener('focus', openInfo);
+    infoButton.addEventListener('blur', closeInfo);
+
+    infoWrapper.append(infoButton, infoTooltip);
+
+    groups.append(timestampSection.section, toneSection.section, infoWrapper);
 
     container.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -933,9 +1074,24 @@
     return preset ? preset.prompt : '';
   }
 
+  function setHoverToolbarEnabled(next) {
+    const enabled = !!next;
+    if (hoverToolbarState.enabled === enabled) return;
+    hoverToolbarState.enabled = enabled;
+    hoverToolbarState.lastBroadcastPayload = null;
+    if (!enabled) {
+      cleanupHoverToolbarElements();
+      hoverToolbarState.composerEl = null;
+    } else {
+      scheduleHoverToolbarCheck();
+    }
+    broadcastPromptInjectionState(true);
+  }
+
   window.GurumHoverToolbar = Object.assign(window.GurumHoverToolbar || {}, {
     initializeHoverToolbar,
     applyHoverToolbarTheme,
     HOVER_THEME_STORAGE_KEY,
+    setHoverToolbarEnabled,
   });
 })();

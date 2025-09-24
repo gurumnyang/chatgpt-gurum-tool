@@ -59,6 +59,7 @@
   "theme_dark": { "message": "Dark" },
   "theme_rabbit": { "message": "Rabbit" },
   "theme_cat": { "message": "Cat" },
+  "hover_toolbar_label": { "message": "Hover toolbar" },
   "timestamps_label": { "message": "Message timestamps" },
   "timestamp_format_label": { "message": "Timestamp format" },
   "timestamp_format_standard": { "message": "Standard (YYYY-MM-DD HH:mm:ss)" },

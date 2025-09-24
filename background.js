@@ -396,28 +396,37 @@ let currentPlan = 'free';
 chrome.runtime.onInstalled.addListener((details) => {
   (async () => {
     try {
-      // 초기 설치 및 업데이트 시 타임스탬프 표시 기본값을 활성화
-      await chrome.storage.local.set({ showTimestamps: true });
-      const { timestampFormat } = await chrome.storage.local.get('timestampFormat');
-      if (!timestampFormat) {
+      const reason = details?.reason;
+      const installedReasonEnum = chrome.runtime.OnInstalledReason || {};
+      const isFreshInstall =
+        reason === installedReasonEnum.INSTALL || (!reason && installedReasonEnum.INSTALL == null);
+
+      const prefs = await chrome.storage.local.get(['showTimestamps', 'timestampFormat']);
+      if (prefs.showTimestamps === undefined) {
+        await chrome.storage.local.set({ showTimestamps: true });
+      }
+      if (!prefs.timestampFormat) {
         await chrome.storage.local.set({ timestampFormat: 'standard' });
       }
+
+      const { userLocale } = await chrome.storage.local.get('userLocale');
+      await bgLoadLocaleDict(userLocale);
+
+      if (isFreshInstall) {
+        const drTotal = await getDeepResearchTotalFor(currentPlan);
+        const initialDr = {
+          remaining: '-',
+          total: drTotal || '-',
+          resetAt: getNextMonthlyResetTimestamp(),
+        };
+        await chrome.storage.local.set({
+          usageCounts: {},
+          limits: defaultLimits[currentPlan],
+          currentPlan: currentPlan,
+          deepResearch: initialDr,
+        });
+      }
     } catch (_) {}
-    // load locale override
-    const { userLocale } = await chrome.storage.local.get('userLocale');
-    await bgLoadLocaleDict(userLocale);
-    const drTotal = await getDeepResearchTotalFor(currentPlan);
-    const initialDr = {
-      remaining: '-',
-      total: drTotal || '-',
-      resetAt: getNextMonthlyResetTimestamp(),
-    };
-    await chrome.storage.local.set({
-      usageCounts: {},
-      limits: defaultLimits[currentPlan],
-      currentPlan: currentPlan,
-      deepResearch: initialDr,
-    });
     // 오래된 데이터 정리 알람
     chrome.alarms.create('cleanupData', { periodInMinutes: 24 * 60 });
     // 플랜 한도 주기 동기화 알람 (6시간마다)

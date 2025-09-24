@@ -587,6 +587,25 @@ if (themeSelect) {
   });
 }
 
+// Hover toolbar toggle
+const toggleHoverToolbar = document.getElementById('toggleHoverToolbar');
+if (toggleHoverToolbar) {
+  chrome.storage.local.get('hoverToolbarEnabled', (data) => {
+    const enabled = data.hoverToolbarEnabled;
+    toggleHoverToolbar.checked = enabled !== false;
+  });
+  toggleHoverToolbar.addEventListener('change', () => {
+    const enabled = !!toggleHoverToolbar.checked;
+    chrome.storage.local.set({ hoverToolbarEnabled: enabled }, () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab) return;
+        chrome.tabs.sendMessage(tab.id, { type: 'setHoverToolbarEnabled', enabled });
+      });
+    });
+  });
+}
+
 // Timestamps toggle
 const toggleTimestamps = document.getElementById('toggleTimestamps');
 if (toggleTimestamps) {
