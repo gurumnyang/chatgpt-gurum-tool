@@ -133,11 +133,12 @@
     if (!infoSegments.length) return false;
 
     const base = typeof original === 'string' ? original.trimStart() : '';
-    const generatedBlock = `<info>\n//Generated automatically\n${infoSegments.join('\n\n')}\n</info>`;
+    const generatedBlock = `<info>\n//Generated automatically\n${infoSegments.join('\n')}\n</info>`;
     const segments = [generatedBlock];
     if (base) segments.push(base);
-    const finalText = segments.join('\n\n');
+    const finalText = segments.join('\n');
     accessor.set(finalText);
+    console.log(finalText);
     return true;
   }
 

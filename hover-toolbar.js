@@ -947,7 +947,7 @@
     const infoDescEl = document.createElement('span');
     const infoDescText =
       chrome?.i18n?.getMessage?.('hover_info_desc') ||
-      '답변 톤을 지정하거나\n타임스탬프를 자동으로 넣을 수 있어요.';
+      '답변 톤을 지정하거나\n타임스탬프를 자동으로 넣을 수 있어요.\n[구름툴 설정]>[입력창 퀵 툴바]';
     infoDescEl.innerHTML = infoDescText.replace(/\n/g, '<br/>');
 
     // const infoLinkEl = document.createElement('a');
@@ -1058,7 +1058,7 @@
     if (infoTooltipDesc) {
       const infoDescText =
         chrome?.i18n?.getMessage?.('hover_info_desc') ||
-        '답변 톤을 지정하거나\n타임스탬프를 자동으로 넣을 수 있어요.';
+        '답변 톤을 지정하거나\n타임스탬프를 자동으로 넣을 수 있어요.\n[구름툴 설정]>[입력창 퀵 툴바]';
       infoTooltipDesc.innerHTML = infoDescText.replace(/\n/g, '<br/>');
     }
     if (infoTooltipLink) {
