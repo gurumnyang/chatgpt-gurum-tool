@@ -191,7 +191,7 @@
     #${HOVER_TOOLBAR_ID} .gurum-info-tooltip {
       position: absolute;
       top: calc(100%);
-      right: -10;
+      right: -10px;
       width: min(260px, 70vw);
       padding: 10px 12px;
       border-radius: 12px;
@@ -932,12 +932,34 @@
     const infoButton = document.createElement('button');
     infoButton.type = 'button';
     infoButton.className = 'gurum-info-button';
-    infoButton.setAttribute('aria-label', '구름툴 신기능 안내');
+    const ariaLabel = chrome?.i18n?.getMessage?.('hover_info_aria_label') || '구름툴 신기능 안내';
+    infoButton.setAttribute('aria-label', ariaLabel);
     infoButton.innerHTML = '<span aria-hidden="true">?</span>';
 
     const infoTooltip = document.createElement('div');
     infoTooltip.className = 'gurum-info-tooltip';
     infoTooltip.setAttribute('role', 'tooltip');
+    const tooltipId = `${HOVER_TOOLBAR_ID}-info-tooltip`;
+    infoTooltip.id = tooltipId;
+    const infoTitleEl = document.createElement('strong');
+    infoTitleEl.textContent = chrome?.i18n?.getMessage?.('hover_info_title') || '구름툴 신기능';
+
+    const infoDescEl = document.createElement('span');
+    const infoDescText =
+      chrome?.i18n?.getMessage?.('hover_info_desc') ||
+      '답변 톤을 지정하거나\n타임스탬프를 자동으로 넣을 수 있어요.';
+    infoDescEl.innerHTML = infoDescText.replace(/\n/g, '<br/>');
+
+    // const infoLinkEl = document.createElement('a');
+    // infoLinkEl.href = 'https://gall.dcinside.com/mgallery/board/view/?id=chatgpt&no=62312';
+    // infoLinkEl.target = '_blank';
+    // infoLinkEl.rel = 'noopener noreferrer';
+    // infoLinkEl.textContent = chrome?.i18n?.getMessage?.('hover_info_link') || '자세히 알아보기';
+
+    // infoTooltip.append(infoTitleEl, infoDescEl, infoLinkEl);
+    infoTooltip.append(infoTitleEl, infoDescEl);
+
+    infoButton.setAttribute('aria-describedby', tooltipId);
 
     const openInfo = () => infoWrapper.setAttribute('data-open', 'true');
     const closeInfo = () => infoWrapper.setAttribute('data-open', 'false');
@@ -967,6 +989,12 @@
         timestampButtons: timestampSection.buttons,
         promptDropdown: promptSection.dropdown,
         promptButtons: promptSection.buttons,
+        infoWrapper,
+        infoButton,
+        infoTooltip,
+        infoTooltipTitle: infoTitleEl,
+        infoTooltipDesc: infoDescEl,
+        // infoTooltipLink: infoLinkEl,
         documentHandlers: [],
       },
     };
@@ -983,6 +1011,10 @@
       timestampButtons,
       promptDropdown,
       promptButtons,
+      infoTooltipTitle,
+      infoTooltipDesc,
+      infoTooltipLink,
+      infoButton,
     } = hoverToolbarState.elements;
 
     if (root) {
@@ -1019,6 +1051,26 @@
         : optionId === 'exclude';
       btn.dataset.active = active ? 'true' : 'false';
     });
+    if (infoTooltipTitle) {
+      infoTooltipTitle.textContent =
+        chrome?.i18n?.getMessage?.('hover_info_title') || '구름툴 신기능';
+    }
+    if (infoTooltipDesc) {
+      const infoDescText =
+        chrome?.i18n?.getMessage?.('hover_info_desc') ||
+        '답변 톤을 지정하거나\n타임스탬프를 자동으로 넣을 수 있어요.';
+      infoTooltipDesc.innerHTML = infoDescText.replace(/\n/g, '<br/>');
+    }
+    if (infoTooltipLink) {
+      infoTooltipLink.textContent =
+        chrome?.i18n?.getMessage?.('hover_info_link') || '자세히 알아보기';
+      infoTooltipLink.href = 'https://gall.dcinside.com/mgallery/board/view/?id=chatgpt&no=62312';
+    }
+    if (infoButton) {
+      const ariaLabelText =
+        chrome?.i18n?.getMessage?.('hover_info_aria_label') || '구름툴 신기능 안내';
+      infoButton.setAttribute('aria-label', ariaLabelText);
+    }
   }
 
   function persistHoverToolbarState() {
