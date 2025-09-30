@@ -401,12 +401,39 @@ chrome.runtime.onInstalled.addListener((details) => {
       const isFreshInstall =
         reason === installedReasonEnum.INSTALL || (!reason && installedReasonEnum.INSTALL == null);
 
-      const prefs = await chrome.storage.local.get(['showTimestamps', 'timestampFormat']);
-      if (prefs.showTimestamps === undefined) {
-        await chrome.storage.local.set({ showTimestamps: true });
-      }
-      if (!prefs.timestampFormat) {
-        await chrome.storage.local.set({ timestampFormat: 'standard' });
+      const prefs = await chrome.storage.local.get([
+        '__prefsInitialized',
+        'showTimestamps',
+        'timestampFormat',
+        'hoverToolbarTone',
+        'hoverToolbarIncludeTimestamp',
+      ]);
+
+      const needPrefsInit = !prefs.__prefsInitialized;
+      const installReasonIsInstall = reason === installedReasonEnum.INSTALL;
+
+      const shouldInitializeDefaults = installReasonIsInstall || needPrefsInit;
+
+      if (shouldInitializeDefaults) {
+        const updates = { __prefsInitialized: true };
+
+        if (prefs.showTimestamps === undefined) {
+          updates.showTimestamps = true;
+        }
+
+        if (!prefs.timestampFormat) {
+          updates.timestampFormat = 'standard';
+        }
+
+        if (!prefs.hoverToolbarTone) {
+          updates.hoverToolbarTone = 'neutral';
+        }
+
+        if (typeof prefs.hoverToolbarIncludeTimestamp !== 'boolean') {
+          updates.hoverToolbarIncludeTimestamp = false;
+        }
+
+        await chrome.storage.local.set(updates);
       }
 
       const { userLocale } = await chrome.storage.local.get('userLocale');
