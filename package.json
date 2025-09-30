@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-tool-extension",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "이 프로젝트는 Chrome 확장 프로그램(Manifest V3) 개발을 위한 템플릿입니다.",
   "main": "background.js",
   "scripts": {
