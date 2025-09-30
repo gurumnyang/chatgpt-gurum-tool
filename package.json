@@ -10,6 +10,7 @@
     "update-tiktoken": "webpack --config webpack.config.js && copy dist\\tiktoken.bundle.js thirdParty\\",
     "build:release": "npm run build && webpack --config webpack.release.js",
     "release": "npm run build:release",
+    "release:all": "npm run release && npm run release:firefox",
     "build:firefox": "webpack --config webpack.release.firefox.js",
     "release:firefox": "npm run build && npm run build:firefox",
     "lint": "eslint .",
