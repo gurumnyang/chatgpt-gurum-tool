@@ -436,6 +436,21 @@ chrome.runtime.onInstalled.addListener((details) => {
         await chrome.storage.local.set(updates);
       }
 
+      if (reason === installedReasonEnum.UPDATE) {
+        try {
+          const { version } = chrome.runtime.getManifest();
+          chrome.notifications.create('gurum-update-notice', {
+            type: 'basic',
+            iconUrl: 'icons/icon128.png',
+            title: '구름툴이 업데이트되었습니다',
+            message: `(${version})으로 자동 업데이트 되었어요. 새로운 기능과 개선 사항을 확인해보세요!`,
+            priority: 1,
+          });
+        } catch (e) {
+          console.warn('업데이트 알림 생성 실패:', e);
+        }
+      }
+
       const { userLocale } = await chrome.storage.local.get('userLocale');
       await bgLoadLocaleDict(userLocale);
 
