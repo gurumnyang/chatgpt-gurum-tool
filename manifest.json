@@ -34,7 +34,6 @@
         "fetch-hook.js",
         "timestamp-injector.js",
         "dist/tiktoken.bundle.js",
-        "dist/tiktoken-ranks.bundle.js",
         "token-calculator.js",
         "thirdParty/popper.min.js"
       ],

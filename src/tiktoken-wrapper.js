@@ -1,9 +1,9 @@
 /**
- * tiktoken 브라우저 래퍼 (2-분할 로드)
- * - 가벼운 core(lite) + 무거운 rank 데이터를 분할하여 동적 로드
+ * gpt-tokenizer(o200k_base) 경량 래퍼
+ * - thirdParty/o200k_base.js UMD 번들을 직접 사용
  */
 
-import { Tiktoken, getEncodingNameForModel } from 'js-tiktoken/lite';
+import o200kTokenizer from '../thirdParty/o200k_base.js';
 
 // 모델별 최대 토큰 한도
 const MODEL_TOKEN_LIMITS = {
@@ -14,51 +14,24 @@ const MODEL_TOKEN_LIMITS = {
   'gpt-4-turbo': 128000,
   'gpt-4o': 128000,
   'gpt-4o-mini': 128000,
+  'gpt-4.1': 128000,
+  'gpt-4.1-mini': 128000,
+  'gpt-4.1-nano': 128000,
+  o1: 200000,
+  'o1-mini': 200000,
+  'o1-preview': 200000,
+  o3: 200000,
+  'o3-mini': 200000,
+  'o3-pro': 200000,
+  'o4-mini': 200000,
   // 신규 gpt-5 계열 (보수적 기본치: 128K)
-  'gpt-5': 128000,
-  'gpt-5-thinking': 128000,
-  'gpt-5-pro': 128000,
+  'gpt-5': 400000,
+  'gpt-5-thinking': 400000,
+  'gpt-5-pro': 400000,
 };
 
-/**
- * OpenAI 모델에 맞는 토큰화 객체 반환
- * @param {string} model - OpenAI 모델명 (예: gpt-4, gpt-3.5-turbo)
- * @returns {object} 토큰화 객체
- */
-const rankModules = {};
-const importers = {
-  cl100k_base: () =>
-    import(
-      /* webpackChunkName: "tiktoken-ranks" */
-      /* webpackMode: "lazy-once" */
-      'js-tiktoken/ranks/cl100k_base'
-    ),
-  o200k_base: () =>
-    import(
-      /* webpackChunkName: "tiktoken-ranks" */
-      /* webpackMode: "lazy-once" */
-      'js-tiktoken/ranks/o200k_base'
-    ),
-};
-
-async function importRank(name) {
-  if (rankModules[name]) return rankModules[name];
-  const importer = importers[name] || importers.cl100k_base;
-  const mod = await importer();
-  rankModules[name] = mod.default;
-  return rankModules[name];
-}
-
-async function getEncoder(model) {
-  const encodingName = (() => {
-    try {
-      return getEncodingNameForModel(model);
-    } catch {
-      return 'cl100k_base';
-    }
-  })();
-  const table = await importRank(encodingName);
-  return new Tiktoken(table, {});
+async function getEncoder() {
+  return o200kTokenizer;
 }
 
 /**
@@ -70,42 +43,20 @@ async function getEncoder(model) {
 async function countTokensAsync(text, model = 'gpt-4o') {
   if (!text) return 0;
   try {
-    const enc = await getEncoder(model);
-    return enc.encode(text).length;
+    const api = await getEncoder(model);
+    return api.countTokens(text);
   } catch (e) {
     console.error('토큰화 오류:', e);
     return estimateTokens(text);
   }
 }
 
-// 기존 동기 API 호환을 위한 래퍼(최초 호출 시 블로킹될 수 있음)
+// 기존 동기 API 호환을 위한 래퍼(최초 호출 시 근사치 반환 가능)
 function countTokens(text, model = 'gpt-4o') {
+  if (!text) return 0;
+  const api = o200kTokenizer;
   try {
-    const encodingName = (() => {
-      try {
-        return getEncodingNameForModel(model);
-      } catch {
-        return 'cl100k_base';
-      }
-    })();
-
-    // 필요한 인코딩이 아직 로드되지 않았다면 백그라운드에서 로드 시도
-    if (!rankModules[encodingName]) {
-      importRank(encodingName).catch(() => {});
-    }
-    // cl100k_base는 많은 모델이 공유하므로 기본적으로 프리로드
-    if (!rankModules.cl100k_base && encodingName !== 'cl100k_base') {
-      importRank('cl100k_base').catch(() => {});
-    }
-
-    const table = rankModules[encodingName];
-    if (!table) {
-      // 인코딩 테이블이 아직 준비되지 않으면 근사치 반환
-      return estimateTokens(text);
-    }
-
-    const enc = new Tiktoken(table, {});
-    return enc.encode(text).length;
+    return api.countTokens(text);
   } catch (e) {
     console.error('토큰화 오류:', e);
     return estimateTokens(text);
@@ -184,7 +135,7 @@ function formatTokenInfo(tokens, model) {
 }
 
 // 모듈 내보내기
-export default {
+const exportedApi = {
   countTokens,
   countTokensAsync,
   getEncoder,
@@ -193,3 +144,5 @@ export default {
   getContextStatus,
   formatTokenInfo,
 };
+
+export default exportedApi;

@@ -35,7 +35,6 @@
         "timestamp-injector.js",
         "token-calculator.js",
         "dist/tiktoken.bundle.js",
-        "dist/tiktoken-ranks.bundle.js",
         "thirdParty/popper.min.js"
       ],
       "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"]
