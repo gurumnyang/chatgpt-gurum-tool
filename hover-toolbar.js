@@ -7,30 +7,32 @@
     timestamp: 'hoverToolbarIncludeTimestamp',
     enabled: 'hoverToolbarEnabled',
   };
+  const TONE_PRESET_STORAGE_KEY = 'hoverTonePresets';
 
-  const HOVER_TONE_PRESETS = [
+  const DEFAULT_TONE_PRESETS = [
     { id: 'neutral', label: '기본', prompt: '' },
     {
       id: 'friendly',
       label: '친근',
-      prompt: 'tone: 답변을 따뜻하고 우호적인 느낌을 주는 톤',
+      prompt: '따뜻하고 우호적인 느낌을 주는 톤',
     },
     {
       id: 'polite',
       label: '격식',
-      prompt: 'tone: 답변을 정중하고 격식 있는 문체',
+      prompt: '정중하고 격식 있는 문체',
     },
     {
       id: 'monday',
       label: '비관적',
-      prompt: 'tone: 답변을 다소 비관적이고 회의적인 톤',
+      prompt: '비관적이고 회의적인 톤',
     },
     {
       id: 'dcinside',
       label: '디시',
-      prompt: 'tone: 디시인사이드의 천박한 말투. 거칠고 직설적임.',
+      prompt: '디시인사이드의 천박한 말투. 거칠고 직설적임.',
     },
   ];
+  let tonePresets = DEFAULT_TONE_PRESETS.map((preset) => ({ ...preset }));
 
   const HOVER_CUSTOM_PROMPTS = [
     {
@@ -383,8 +385,34 @@
     #${HOVER_TOOLBAR_ID} .gurum-prompt-list {
       display: flex;
       flex-direction: column;
-      gap: 6px;
       width: 100%;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-prompt-list {
+      gap: 6px;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-options {
+      gap: 0;
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-empty {
+      font-size: 12px;
+      color: var(--label-color);
+      padding: 12px 8px;
+      text-align: center;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-options::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-options::-webkit-scrollbar-thumb {
+      background: rgba(108, 117, 125, 0.35);
+      border-radius: 999px;
     }
 
     #${HOVER_TOOLBAR_ID} .gurum-tone-button,
@@ -418,7 +446,284 @@
       border-color: var(--control-hover-border);
       color: var(--control-hover-text);
     }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-options .gurum-tone-button {
+      border: none;
+      border-radius: 8px;
+      padding: 6px 10px;
+      margin: 0;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-options .gurum-tone-button + .gurum-tone-button {
+      margin-top: 2px;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-manage-row {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--dropdown-border);
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-manage {
+      background: none;
+      border: none;
+      color: var(--label-color);
+      font-size: 12px;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+
+    #${HOVER_TOOLBAR_ID} .gurum-tone-manage:hover,
+    #${HOVER_TOOLBAR_ID} .gurum-tone-manage:focus {
+      color: var(--control-hover-text);
+    }
+
+    .gurum-tone-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10010;
+    }
+
+    .gurum-tone-modal {
+      width: min(460px, 90vw);
+      max-height: min(520px, 92vh);
+      display: flex;
+      flex-direction: column;
+      border-radius: 16px;
+      background: #ffffff;
+      color: #212529;
+      box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+      overflow: hidden;
+    }
+
+    .gurum-tone-modal[data-theme='dark'] {
+      background: #1e2533;
+      color: #e9ecef;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6);
+    }
+
+    .gurum-tone-modal-header {
+      padding: 18px 20px 12px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .gurum-tone-modal-body {
+      padding: 0 20px 20px;
+      overflow-y: auto;
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .gurum-tone-modal-body::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .gurum-tone-modal-body::-webkit-scrollbar-thumb {
+      background: rgba(108, 117, 125, 0.35);
+      border-radius: 999px;
+    }
+
+    .gurum-tone-row {
+      border: 1px solid rgba(222, 227, 232, 0.6);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: rgba(248, 249, 250, 0.45);
+    }
+
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-row {
+      border-color: rgba(56, 63, 80, 0.8);
+      background: rgba(30, 36, 48, 0.6);
+    }
+
+    .gurum-tone-row-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .gurum-tone-input,
+    .gurum-tone-textarea {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid rgba(206, 212, 218, 0.9);
+      padding: 8px 10px;
+      font-size: 13px;
+      box-sizing: border-box;
+      background: #ffffff;
+      color: inherit;
+    }
+
+    .gurum-tone-textarea {
+      min-height: 64px;
+      resize: vertical;
+    }
+
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-input,
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-textarea {
+      background: rgba(24, 30, 48, 0.9);
+      border-color: rgba(64, 74, 96, 0.9);
+      color: #f1f5f9;
+    }
+
+    .gurum-tone-input.is-error,
+    .gurum-tone-textarea.is-error {
+      border-color: #dc3545;
+      box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.15);
+    }
+
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-input.is-error,
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-textarea.is-error {
+      border-color: #f87171;
+      box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.22);
+    }
+
+    .gurum-tone-row-actions {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .gurum-tone-delete {
+      background: none;
+      border: none;
+      color: #dc3545;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .gurum-tone-reorder {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .gurum-tone-move {
+      background: none;
+      border: none;
+      color: #0b5ed7;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-move {
+      color: #60a5fa;
+    }
+
+    .gurum-tone-move:disabled {
+      color: rgba(108, 117, 125, 0.4);
+      cursor: not-allowed;
+    }
+
+    .gurum-tone-delete:disabled {
+      color: rgba(220, 53, 69, 0.4);
+      cursor: not-allowed;
+    }
+
+    .gurum-tone-modal-footer {
+      padding: 12px 20px 20px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      border-top: 1px solid rgba(222, 227, 232, 0.5);
+    }
+
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-modal-footer {
+      border-top-color: rgba(56, 63, 80, 0.7);
+    }
+
+    .gurum-tone-secondary,
+    .gurum-tone-primary,
+    .gurum-tone-add {
+      border-radius: 999px;
+      padding: 8px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      border: none;
+    }
+
+    .gurum-tone-secondary {
+      background: rgba(222, 227, 232, 0.6);
+      color: #495057;
+    }
+
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-secondary {
+      background: rgba(56, 63, 80, 0.85);
+      color: #e2e8f0;
+    }
+
+    .gurum-tone-primary {
+      background: #0b5ed7;
+      color: #ffffff;
+    }
+
+    .gurum-tone-add {
+      background: rgba(12, 110, 253, 0.12);
+      color: #0b5ed7;
+    }
+
+    .gurum-tone-modal[data-theme='dark'] .gurum-tone-add {
+      background: rgba(96, 165, 250, 0.18);
+      color: #60a5fa;
+    }
   `;
+
+  function cloneDefaultTonePresets() {
+    return DEFAULT_TONE_PRESETS.map((preset) => ({ ...preset }));
+  }
+
+  function generateTonePresetId() {
+    return `tone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  function sanitizeTonePresetList(list) {
+    if (!Array.isArray(list)) return cloneDefaultTonePresets();
+    const sanitized = [];
+    const seen = new Set();
+    list.forEach((item, index) => {
+      if (!item || typeof item !== 'object') return;
+      let id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : null;
+      if (!id) {
+        id = generateTonePresetId();
+      }
+      if (seen.has(id)) {
+        id = `${id}-${index}-${Math.random().toString(36).slice(2, 5)}`;
+      }
+      seen.add(id);
+      const label =
+        typeof item.label === 'string' && item.label.trim()
+          ? item.label.trim()
+          : `프리셋 ${sanitized.length + 1}`;
+      const prompt =
+        typeof item.prompt === 'string'
+          ? item.prompt.replace(/^\s*tone\s*:\s*/i, '').trim()
+          : '';
+      sanitized.push({ id, label, prompt });
+    });
+    if (!sanitized.length) {
+      return cloneDefaultTonePresets();
+    }
+    return sanitized;
+  }
+
+  function getTonePresetById(id) {
+    if (!id) return null;
+    return tonePresets.find((item) => item.id === id) || null;
+  }
 
   const hoverToolbarState = {
     tone: 'neutral',
@@ -433,6 +738,8 @@
     statusTimer: null,
     elements: null,
     dropdowns: [],
+    toneModal: null,
+    toneModalEscHandler: null,
     lastSegments: {
       tone: null,
       prompt: null,
@@ -441,6 +748,47 @@
     lastBroadcastPayload: null,
   };
   const DROPDOWN_MAX_HEIGHT = 280;
+
+  function getTonePresets() {
+    return tonePresets.slice();
+  }
+
+  function refreshToneOptionsUI() {
+    const refreshFn = hoverToolbarState.elements?.toneOptionsRefresh;
+    if (typeof refreshFn === 'function') {
+      refreshFn();
+    }
+  }
+
+  function ensureToneSelection(preferredId) {
+    const available = tonePresets;
+    let nextTone = hoverToolbarState.tone;
+    if (preferredId && available.some((item) => item.id === preferredId)) {
+      nextTone = preferredId;
+    } else if (!available.some((item) => item.id === nextTone)) {
+      nextTone = available.length ? available[0].id : null;
+    }
+    const changed = hoverToolbarState.tone !== nextTone;
+    hoverToolbarState.tone = nextTone;
+    return changed;
+  }
+
+  function setTonePresets(list, { persist = false, preferredId, silent = false } = {}) {
+    tonePresets = sanitizeTonePresetList(list);
+    const selectionChanged = ensureToneSelection(preferredId);
+    if (persist && chrome?.storage?.local) {
+      chrome.storage.local.set({ [TONE_PRESET_STORAGE_KEY]: tonePresets });
+    }
+    refreshToneOptionsUI();
+    syncHoverToolbarUI();
+    if (selectionChanged) {
+      persistHoverToolbarState();
+    }
+    if (!silent) {
+      clearLastSegments('tone');
+      broadcastPromptInjectionState(true);
+    }
+  }
 
   function injectHoverToolbarStyles() {
     if (document.getElementById(HOVER_TOOLBAR_STYLE_ID)) return;
@@ -460,14 +808,19 @@
       HOVER_STORAGE_KEYS.timestamp,
       HOVER_THEME_STORAGE_KEY,
       HOVER_STORAGE_KEYS.enabled,
+      TONE_PRESET_STORAGE_KEY,
     ];
     chrome.storage.local.get(keys, (res) => {
       try {
-        if (res && typeof res[HOVER_STORAGE_KEYS.tone] === 'string') {
-          const value = res[HOVER_STORAGE_KEYS.tone];
-          if (HOVER_TONE_PRESETS.some((preset) => preset.id === value)) {
-            hoverToolbarState.tone = value;
-          }
+        const storedTone =
+          res && typeof res[HOVER_STORAGE_KEYS.tone] === 'string'
+            ? res[HOVER_STORAGE_KEYS.tone]
+            : null;
+        const storedPresets = res && res[TONE_PRESET_STORAGE_KEY];
+        if (Array.isArray(storedPresets)) {
+          setTonePresets(storedPresets, { silent: true, preferredId: storedTone });
+        } else if (storedTone) {
+          ensureToneSelection(storedTone);
         }
         if (res && typeof res[HOVER_STORAGE_KEYS.timestamp] === 'boolean') {
           hoverToolbarState.includeTimestamp = res[HOVER_STORAGE_KEYS.timestamp];
@@ -586,7 +939,8 @@
   }
 
   function getToneLabel(toneId) {
-    const preset = HOVER_TONE_PRESETS.find((item) => item.id === toneId);
+    if (!toneId) return '설정 안 함';
+    const preset = getTonePresetById(toneId);
     return preset ? preset.label : toneId;
   }
 
@@ -780,29 +1134,56 @@
     const buttons = new Map();
     const options = document.createElement('div');
     options.className = 'gurum-tone-options';
-
-    HOVER_TONE_PRESETS.forEach((preset) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'gurum-tone-button';
-      btn.textContent = preset.label;
-      btn.dataset.tone = preset.id;
-      btn.setAttribute('aria-pressed', 'false');
-      btn.addEventListener('click', () => {
-        hoverToolbarState.tone = preset.id;
-        persistHoverToolbarState();
-        clearLastSegments('tone');
-        showHoverToolbarStatus(`'${preset.label}' 톤을 적용하도록 설정했습니다.`);
-        closeAllDropdowns();
-        syncHoverToolbarUI();
-        broadcastPromptInjectionState();
-      });
-      buttons.set(preset.id, btn);
-      options.appendChild(btn);
-    });
-
     dropdown.panel.appendChild(options);
-    dropdown.value.textContent = getToneLabel(hoverToolbarState.tone);
+
+    const manageRow = document.createElement('div');
+    manageRow.className = 'gurum-tone-manage-row';
+    const manageBtn = document.createElement('button');
+    manageBtn.type = 'button';
+    manageBtn.className = 'gurum-tone-manage';
+    manageBtn.textContent = '프리셋 관리';
+    manageBtn.addEventListener('click', () => {
+      closeAllDropdowns();
+      openTonePresetManager();
+    });
+    manageRow.appendChild(manageBtn);
+    dropdown.panel.appendChild(manageRow);
+
+    const renderToneButtons = () => {
+      buttons.clear();
+      options.innerHTML = '';
+      const list = tonePresets;
+      if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'gurum-tone-empty';
+        empty.textContent = '등록된 프리셋이 없습니다.';
+        options.appendChild(empty);
+      } else {
+        list.forEach((preset) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'gurum-tone-button';
+          btn.textContent = preset.label;
+          btn.dataset.tone = preset.id;
+          btn.setAttribute('aria-pressed', 'false');
+          btn.addEventListener('click', () => {
+            hoverToolbarState.tone = preset.id;
+            persistHoverToolbarState();
+            clearLastSegments('tone');
+            showHoverToolbarStatus(`'${preset.label}' 톤을 적용하도록 설정했습니다.`);
+            closeAllDropdowns();
+            syncHoverToolbarUI();
+            broadcastPromptInjectionState();
+          });
+          buttons.set(preset.id, btn);
+          options.appendChild(btn);
+        });
+      }
+      dropdown.value.textContent = getToneLabel(hoverToolbarState.tone);
+      syncHoverToolbarUI();
+    };
+
+    renderToneButtons();
 
     const section = document.createElement('div');
     section.className = 'gurum-section gurum-section--tone';
@@ -811,7 +1192,7 @@
     labelEl.textContent = '답변 톤';
     section.append(labelEl, dropdown.root);
 
-    return { section, dropdown, buttons };
+    return { section, dropdown, buttons, refresh: renderToneButtons };
   }
 
   function buildTimestampSection() {
@@ -985,6 +1366,7 @@
         root: container,
         toneDropdown: toneSection.dropdown,
         toneButtons: toneSection.buttons,
+        toneOptionsRefresh: toneSection.refresh,
         timestampDropdown: timestampSection.dropdown,
         timestampButtons: timestampSection.buttons,
         promptDropdown: promptSection.dropdown,
@@ -1121,9 +1503,274 @@
   }
 
   function buildToneDirectiveText() {
-    if (hoverToolbarState.tone === 'neutral') return '';
-    const preset = HOVER_TONE_PRESETS.find((item) => item.id === hoverToolbarState.tone);
-    return preset ? preset.prompt : '';
+    const preset = getTonePresetById(hoverToolbarState.tone);
+    if (!preset) return '';
+    const raw = typeof preset.prompt === 'string' ? preset.prompt.trim() : '';
+    if (!raw) return '';
+    return raw.toLowerCase().startsWith('tone:') ? raw : `tone: ${raw}`;
+  }
+
+  function closeTonePresetManager() {
+    const overlay = hoverToolbarState.toneModal;
+    if (!overlay) return;
+    if (hoverToolbarState.toneModalEscHandler) {
+      document.removeEventListener('keydown', hoverToolbarState.toneModalEscHandler, true);
+      hoverToolbarState.toneModalEscHandler = null;
+    }
+    if (overlay.parentElement) {
+      overlay.parentElement.removeChild(overlay);
+    }
+    hoverToolbarState.toneModal = null;
+    const trigger = hoverToolbarState.elements?.toneDropdown?.trigger;
+    if (trigger && trigger instanceof HTMLElement) {
+      trigger.focus({ preventScroll: true });
+    }
+  }
+
+  function openTonePresetManager() {
+    if (hoverToolbarState.toneModal) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'gurum-tone-modal-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'gurum-tone-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', '톤 프리셋 관리');
+    modal.tabIndex = -1;
+    if (hoverToolbarState.theme === 'dark' || hoverToolbarState.theme === 'cat') {
+      modal.setAttribute('data-theme', 'dark');
+    }
+    overlay.appendChild(modal);
+
+    const escHandler = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeTonePresetManager();
+      }
+    };
+    hoverToolbarState.toneModalEscHandler = escHandler;
+    document.addEventListener('keydown', escHandler, true);
+
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        closeTonePresetManager();
+      }
+    });
+
+    const header = document.createElement('div');
+    header.className = 'gurum-tone-modal-header';
+    header.textContent = '톤 프리셋 관리';
+    modal.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'gurum-tone-modal-body';
+    modal.appendChild(body);
+
+    const footer = document.createElement('div');
+    footer.className = 'gurum-tone-modal-footer';
+    modal.appendChild(footer);
+
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'gurum-tone-add';
+    addButton.textContent = '프리셋 추가';
+    addButton.style.marginRight = 'auto';
+
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'gurum-tone-secondary';
+    cancelButton.textContent = '취소';
+
+    const saveButton = document.createElement('button');
+    saveButton.type = 'button';
+    saveButton.className = 'gurum-tone-primary';
+    saveButton.textContent = '저장';
+
+    footer.append(addButton, cancelButton, saveButton);
+
+    const renderRow = (preset) => {
+      const row = document.createElement('div');
+      row.className = 'gurum-tone-row';
+      row.dataset.id = preset.id || generateTonePresetId();
+
+      const fields = document.createElement('div');
+      fields.className = 'gurum-tone-row-fields';
+
+      const labelInput = document.createElement('input');
+      labelInput.type = 'text';
+      labelInput.className = 'gurum-tone-input';
+      labelInput.placeholder = '프리셋 이름';
+      labelInput.value = preset.label || '';
+
+      const promptInput = document.createElement('textarea');
+      promptInput.className = 'gurum-tone-textarea';
+      promptInput.placeholder = '프리셋에 사용할 지시문을 입력하세요.';
+      promptInput.value = preset.prompt || '';
+
+      fields.append(labelInput, promptInput);
+
+      const actions = document.createElement('div');
+      actions.className = 'gurum-tone-row-actions';
+
+      const reorderGroup = document.createElement('div');
+      reorderGroup.className = 'gurum-tone-reorder';
+
+      const moveUpButton = document.createElement('button');
+      moveUpButton.type = 'button';
+      moveUpButton.className = 'gurum-tone-move';
+      moveUpButton.dataset.action = 'move-up';
+      moveUpButton.textContent = '▲';
+      moveUpButton.setAttribute('aria-label', `${labelInput.value || '프리셋'} 위로 이동`);
+      moveUpButton.addEventListener('click', () => {
+        movePresetRow(row, 'up');
+      });
+
+      const moveDownButton = document.createElement('button');
+      moveDownButton.type = 'button';
+      moveDownButton.className = 'gurum-tone-move';
+      moveDownButton.dataset.action = 'move-down';
+      moveDownButton.textContent = '▼';
+      moveDownButton.setAttribute('aria-label', `${labelInput.value || '프리셋'} 아래로 이동`);
+      moveDownButton.addEventListener('click', () => {
+        movePresetRow(row, 'down');
+      });
+
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'gurum-tone-delete';
+      deleteButton.textContent = '삭제';
+      deleteButton.addEventListener('click', () => {
+        row.remove();
+        updateRowControlsState();
+      });
+
+      const syncMoveLabels = () => {
+        const baseName = labelInput.value.trim() || '프리셋';
+        moveUpButton.setAttribute('aria-label', `${baseName} 위로 이동`);
+        moveDownButton.setAttribute('aria-label', `${baseName} 아래로 이동`);
+      };
+
+      labelInput.addEventListener('input', syncMoveLabels);
+
+      reorderGroup.append(moveUpButton, moveDownButton);
+
+      actions.append(reorderGroup, deleteButton);
+
+      row.append(fields, actions);
+      body.appendChild(row);
+      syncMoveLabels();
+      return row;
+    };
+
+    const movePresetRow = (row, direction) => {
+      if (!row || !row.parentElement) return;
+      if (direction === 'up' && row.previousElementSibling) {
+        row.parentElement.insertBefore(row, row.previousElementSibling);
+      } else if (direction === 'down' && row.nextElementSibling) {
+        row.parentElement.insertBefore(row.nextElementSibling, row);
+      }
+      updateRowControlsState();
+      const input = row.querySelector('.gurum-tone-input');
+      if (input) {
+        input.focus({ preventScroll: true });
+      }
+    };
+
+    const updateRowControlsState = () => {
+      const rows = Array.from(body.querySelectorAll('.gurum-tone-row'));
+      const disableDelete = rows.length <= 1;
+      rows.forEach((row, index) => {
+        const deleteBtn = row.querySelector('.gurum-tone-delete');
+        if (deleteBtn) deleteBtn.disabled = disableDelete;
+        const upBtn = row.querySelector('.gurum-tone-move[data-action="move-up"]');
+        const downBtn = row.querySelector('.gurum-tone-move[data-action="move-down"]');
+        if (upBtn) upBtn.disabled = index === 0;
+        if (downBtn) downBtn.disabled = index === rows.length - 1;
+      });
+    };
+
+    const currentPresets = getTonePresets();
+    currentPresets.forEach((preset) => renderRow(preset));
+    if (!currentPresets.length) {
+      renderRow({ id: generateTonePresetId(), label: '새 프리셋', prompt: '' });
+    }
+    updateRowControlsState();
+
+    addButton.addEventListener('click', () => {
+      const row = renderRow({
+        id: generateTonePresetId(),
+        label: '새 프리셋',
+        prompt: '',
+      });
+      updateRowControlsState();
+      const input = row.querySelector('.gurum-tone-input');
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    });
+
+    cancelButton.addEventListener('click', () => {
+      closeTonePresetManager();
+    });
+
+    saveButton.addEventListener('click', () => {
+      const rows = Array.from(body.querySelectorAll('.gurum-tone-row'));
+      const updated = [];
+      let hasError = false;
+
+      rows.forEach((row) => {
+        const id = row.dataset.id || generateTonePresetId();
+        const labelInput = row.querySelector('.gurum-tone-input');
+        const promptInput = row.querySelector('.gurum-tone-textarea');
+        if (!labelInput || !promptInput) return;
+
+        labelInput.classList.remove('is-error');
+        promptInput.classList.remove('is-error');
+
+        const label = labelInput.value.trim();
+        if (!label) {
+          labelInput.classList.add('is-error');
+          if (!hasError) {
+            labelInput.focus();
+          }
+          hasError = true;
+          return;
+        }
+
+        const cleanedPrompt = promptInput.value.replace(/^\s*tone\s*:\s*/i, '').trim();
+
+        updated.push({
+          id,
+          label,
+          prompt: cleanedPrompt,
+        });
+      });
+
+      if (hasError) return;
+      if (!updated.length) {
+        showHoverToolbarStatus('최소 1개의 프리셋이 필요합니다.');
+        return;
+      }
+
+      setTonePresets(updated, { persist: true });
+      closeTonePresetManager();
+      showHoverToolbarStatus('톤 프리셋 구성을 저장했습니다.');
+    });
+
+    document.body.appendChild(overlay);
+    hoverToolbarState.toneModal = overlay;
+
+    setTimeout(() => {
+      modal.focus({ preventScroll: true });
+      const firstInput = body.querySelector('.gurum-tone-input');
+      if (firstInput) {
+        firstInput.focus({ preventScroll: true });
+        firstInput.select();
+      }
+    }, 0);
   }
 
   function setHoverToolbarEnabled(next) {
@@ -1132,6 +1779,7 @@
     hoverToolbarState.enabled = enabled;
     hoverToolbarState.lastBroadcastPayload = null;
     if (!enabled) {
+      closeTonePresetManager();
       cleanupHoverToolbarElements();
       hoverToolbarState.composerEl = null;
     } else {
