@@ -279,7 +279,12 @@
       white-space: nowrap;
     }
 
-    #${HOVER_TOOLBAR_ID} .gurum-dropdown[data-dropdown-type='tone'] .gurum-dropdown-trigger,
+    #${HOVER_TOOLBAR_ID} .gurum-dropdown[data-dropdown-type='tone'] .gurum-dropdown-trigger {
+      width: 100px;
+      min-width: 100px;
+      max-width: 130px;
+      padding: 8px 12px;
+    }
     #${HOVER_TOOLBAR_ID} .gurum-dropdown[data-dropdown-type='timestamp'] .gurum-dropdown-trigger {
       width: 80px;
       min-width: 80px;
