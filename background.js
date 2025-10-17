@@ -1,398 +1,29 @@
 console.log('Background script running.');
 
-// 원격 플랜 한도 구성 URL (고정)
-const REMOTE_LIMITS_URL =
-  'https://raw.githubusercontent.com/gurumnyang/chatgpt-gurum-tool/main/config/plan-limits.json';
+self.__GURUM_BG__ = self.__GURUM_BG__ || {};
+self.importScripts(
+  'background/limits.js',
+  'background/i18n.js',
+  'background/usage.js',
+  'background/migrations.js',
+);
 
-// 원격 플랜 한도 불러오기
-async function fetchRemotePlanLimits() {
-  const url = REMOTE_LIMITS_URL;
-  try {
-    const res = await fetch(url, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!data || !data.plans) throw new Error('Invalid plan JSON');
-    return data; // { version, updatedAt, plans }
-  } catch (e) {
-    console.warn('원격 플랜 한도 로드 실패:', e);
-    return null;
-  }
-}
+const {
+  defaultLimits,
+  refreshPlanLimitsFromRemote,
+  getDeepResearchTotalFor,
+  getNextMonthlyResetTimestamp,
+  updateModelUsageWithWorkspace,
+  updateBadge,
+  cleanupOldData,
+  bgLoadLocaleDict,
+  migrateModelAliases,
+  migrateO4MiniHigh,
+  migratePolicy2025_08,
+} = self.__GURUM_BG__;
 
-// 현재 플랜 템플릿(원격 > 로컬) 조회
-async function getPlanLimitsTemplate() {
-  const data = await chrome.storage.local.get(['planLimitsAll']);
-  return data.planLimitsAll || defaultLimits;
-}
-
-// Deep Research total 조회
-async function getDeepResearchTotalFor(plan) {
-  const tmpl = await getPlanLimitsTemplate();
-  return tmpl[plan] && tmpl[plan]['deep-research'] && tmpl[plan]['deep-research'].value != null
-    ? tmpl[plan]['deep-research'].value
-    : '-';
-}
-
-// 원격 플랜 한도 동기화
-async function refreshPlanLimitsFromRemote() {
-  try {
-    const conf = await chrome.storage.local.get(['currentPlan']);
-    const plan = conf.currentPlan || currentPlan || 'free';
-    const remote = await fetchRemotePlanLimits();
-    if (!remote) return { updated: false };
-    const planLimitsAll = remote.plans;
-    const limits = planLimitsAll[plan] || defaultLimits[plan] || {};
-
-    const now = Date.now();
-    await chrome.storage.local.set({ planLimitsAll, limits, lastPlanSyncAt: now });
-    await migrateModelAliases();
-
-    // Deep Research total 동기화 (remaining 유지)
-    chrome.storage.local.get('deepResearch', (data) => {
-      const dr = data.deepResearch || {};
-      dr.total = planLimitsAll[plan]?.['deep-research']?.value ?? dr.total ?? '-';
-      chrome.storage.local.set({ deepResearch: dr });
-    });
-
-    return { updated: true, version: remote.version, updatedAt: remote.updatedAt, lastSyncAt: now };
-  } catch (e) {
-    console.warn('원격 플랜 동기화 실패:', e);
-    return { updated: false };
-  }
-}
-
-/**
- * 타입별(3시간/일간/주간/월간) 카운트 계산
- * @param {Array} timestamps - 타임스탬프 배열
- * @param {string} type - "threeHour", "daily", "weekly", "monthly" 중 하나
- * @returns {number} 해당 기간 내 카운트
- */
-function getCountByType(timestamps, type) {
-  if (!timestamps || !Array.isArray(timestamps)) return 0;
-
-  const now = Date.now();
-  let cutoffTime;
-
-  switch (type) {
-    case 'fiveHour':
-      cutoffTime = now - 5 * 60 * 60 * 1000; // 5시간
-      break;
-    case 'threeHour':
-      cutoffTime = now - 3 * 60 * 60 * 1000; // 3시간
-      break;
-    case 'daily':
-      // 당일 00:00 KST 기준
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      cutoffTime = today.getTime();
-      break;
-    case 'weekly':
-      // 이번 주 월요일 00:00 KST 기준
-      const thisMonday = new Date();
-      thisMonday.setHours(0, 0, 0, 0);
-      // 월요일이 0이 아니라 1이므로 일요일은 0, 월요일은 1...
-      const daysSinceMonday = (thisMonday.getDay() + 6) % 7; // 월요일을 기준으로 날짜 조정
-      thisMonday.setDate(thisMonday.getDate() - daysSinceMonday);
-      cutoffTime = thisMonday.getTime();
-      break;
-    case 'monthly':
-      // 이번 달 1일 00:00 KST 기준
-      const thisMonth = new Date();
-      thisMonth.setDate(1);
-      thisMonth.setHours(0, 0, 0, 0);
-      cutoffTime = thisMonth.getTime();
-      break;
-    default:
-      cutoffTime = 0;
-  }
-
-  // 해당 기간 이후의 타임스탬프만 필터링해서 개수 반환
-  return timestamps.filter((timestamp) => timestamp >= cutoffTime).length;
-}
-
-// 공통: 다음 리셋 시각 계산 (KST 자정 기준)
-function getNextResetTimestamp() {
-  const now = new Date();
-  const kstMidnight = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 15, 0, 0),
-  );
-  if (now.getTime() >= kstMidnight.getTime()) {
-    kstMidnight.setUTCDate(kstMidnight.getUTCDate() + 1);
-  }
-  return kstMidnight.getTime();
-}
-
-// 딥리서치 전용: 월간 리셋 시각 계산 (매월 1일 KST 00:00)
-function getNextMonthlyResetTimestamp() {
-  const now = new Date();
-  // 다음 달 1일 자정(로컬 시간 KST 기준)
-  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0);
-  return next.getTime();
-}
-
-// 알림 임계치 (예: 80%)
-const NOTIFY_THRESHOLD = 0.8;
-
-// i18n helpers (background/service worker)
-let BG_LOCALE_DICT = null;
-let BG_LOCALE_CODE = null; // 'system' | 'ko' | 'en'
-
-async function bgLoadLocaleDict(code) {
-  try {
-    if (!code || code === 'system') {
-      BG_LOCALE_DICT = null;
-      BG_LOCALE_CODE = 'system';
-      return;
-    }
-    const url = chrome.runtime.getURL(`_locales/${code}/messages.json`);
-    const res = await fetch(url);
-    if (res.ok) {
-      BG_LOCALE_DICT = await res.json();
-      BG_LOCALE_CODE = code;
-    } else {
-      BG_LOCALE_DICT = null;
-      BG_LOCALE_CODE = 'system';
-    }
-  } catch {
-    BG_LOCALE_DICT = null;
-    BG_LOCALE_CODE = 'system';
-  }
-}
-
-function t(id, subs) {
-  try {
-    if (BG_LOCALE_DICT && BG_LOCALE_DICT[id] && BG_LOCALE_DICT[id].message) {
-      let s = BG_LOCALE_DICT[id].message;
-      const arr = Array.isArray(subs) ? subs : [];
-      arr.forEach((v, i) => {
-        s = s.replace(new RegExp('\\$' + (i + 1), 'g'), v);
-      });
-      return s;
-    }
-    return chrome.i18n.getMessage(id, subs || []) || id;
-  } catch {
-    return id;
-  }
-}
-function getLimitLabel(limitType) {
-  switch (limitType) {
-    case 'fiveHour':
-      return t('limit_label_fiveHour');
-    case 'threeHour':
-      return t('limit_label_threeHour');
-    case 'daily':
-      return t('limit_label_daily');
-    case 'weekly':
-      return t('limit_label_weekly');
-    case 'monthly':
-      return t('limit_label_monthly');
-    default:
-      return '';
-  }
-}
-
-// 임시 데이터 저장은 필요하지 않음 (웹 요청 직접 모니터링 대신 메시지 사용)
-
-// conversation/init API 요청은 fetch-hook.js와 content script를 통해 처리
-// webRequest 권한이 제거되어 직접적인 API 요청 모니터링은 사용하지 않음
-
-// 메시지 카운트 데이터는 updateModelUsageWithWorkspace 함수로 처리
-
-// Deep Research API 모니터링은 content script와 fetch-hook.js를 통해 처리
-
-// 기본 모델별 한도 (예시)
-// 플랜별 모델 한도 설정
-const defaultLimits = {
-  free: {
-    'gpt-5': {
-      type: 'fiveHour',
-      value: 10,
-      displayName: 'GPT-5',
-      detect: ['auto', 'gpt-5', 'gpt-5-instant'],
-    },
-    'gpt-5-thinking': {
-      type: 'daily',
-      value: 1,
-      displayName: 'GPT-5 Thinking',
-      detect: ['gpt-5-thinking'],
-    },
-    'deep-research': { type: 'monthly', value: 5, displayName: 'Deep Research' },
-  },
-  plus: {
-    'gpt-4o': { type: 'threeHour', value: 80, displayName: 'GPT-4o', detect: ['gpt-4o'] },
-    'gpt-4-1': { type: 'threeHour', value: 80, displayName: 'GPT-4.1', detect: ['gpt-4-1'] },
-    o3: { type: 'weekly', value: 100, displayName: 'o3', detect: ['o3'] },
-    'o4-mini': { type: 'daily', value: 300, displayName: 'o4-mini', detect: ['o4-mini'] },
-    'gpt-5': {
-      type: 'threeHour',
-      value: 160,
-      displayName: 'GPT-5',
-      detect: ['gpt-5', 'gpt-5-instant'],
-    },
-    'gpt-5-thinking': {
-      type: 'weekly',
-      value: 200,
-      displayName: 'GPT-5 Thinking',
-      detect: ['gpt-5-thinking'],
-    },
-    'gpt-5-t-mini': {
-      type: 'weekly',
-      value: 2800,
-      displayName: 'GPT-5 Thinking mini',
-      detect: ['gpt-5-t-mini'],
-    },
-    'deep-research': { type: 'monthly', value: 25, displayName: 'Deep Research' },
-  },
-  team: {
-    'gpt-4o': { type: 'unlimited', value: null, displayName: 'GPT-4o', detect: ['gpt-4o'] },
-    'gpt-4-1': { type: 'threeHour', value: 500, displayName: 'GPT-4.1', detect: ['gpt-4-1'] },
-    o3: { type: 'daily', value: 300, displayName: 'o3', detect: ['o3'] },
-    'o4-mini': { type: 'daily', value: 300, displayName: 'o4-mini', detect: ['o4-mini'] },
-    'gpt-5': {
-      type: 'unlimited',
-      value: null,
-      displayName: 'GPT-5',
-      detect: ['gpt-5', 'gpt-5-instant'],
-    },
-    'gpt-5-thinking': {
-      type: 'weekly',
-      value: 200,
-      displayName: 'GPT-5 Thinking',
-      detect: ['gpt-5-thinking'],
-    },
-    'gpt-5-t-mini': {
-      type: 'weekly',
-      value: 2800,
-      displayName: 'GPT-5 Thinking mini',
-      detect: ['gpt-5-t-mini'],
-    },
-    'gpt-5-pro': { type: 'monthly', value: 15, displayName: 'GPT-5 Pro', detect: ['gpt-5-pro'] },
-    'deep-research': { type: 'monthly', value: 25, displayName: 'Deep Research' },
-  },
-  pro: {
-    'gpt-4o': { type: 'unlimited', value: null, displayName: 'GPT-4o', detect: ['gpt-4o'] },
-    'gpt-4-1': { type: 'unlimited', value: null, displayName: 'GPT-4.1', detect: ['gpt-4-1'] },
-    'gpt-4-5': { type: 'unlimited', value: null, displayName: 'GPT-4.5', detect: ['gpt-4-5'] },
-    o3: { type: 'unlimited', value: null, displayName: 'o3', detect: ['o3'] },
-    'o4-mini': { type: 'unlimited', value: null, displayName: 'o4-mini', detect: ['o4-mini'] },
-    'gpt-5': {
-      type: 'unlimited',
-      value: null,
-      displayName: 'GPT-5',
-      detect: ['gpt-5', 'gpt-5-instant'],
-    },
-    'gpt-5-thinking': {
-      type: 'unlimited',
-      value: null,
-      displayName: 'GPT-5 Thinking',
-      detect: ['gpt-5-thinking'],
-    },
-    'gpt-5-t-mini': {
-      type: 'unlimited',
-      value: null,
-      displayName: 'GPT-5 Thinking mini',
-      detect: ['gpt-5-t-mini'],
-    },
-    'gpt-5-pro': {
-      type: 'unlimited',
-      value: null,
-      displayName: 'GPT-5 Pro',
-      detect: ['gpt-5-pro'],
-    },
-    'deep-research': { type: 'monthly', value: 250, displayName: 'Deep Research' },
-  },
-};
-
-// 정책 변경(2025-08): 모델/플랜 한도 마이그레이션
-async function migratePolicy2025_08() {
-  try {
-    const data = await chrome.storage.local.get([
-      'usageCounts',
-      'limits',
-      'currentPlan',
-      'planLimitsAll',
-    ]);
-    const counts = data.usageCounts || {};
-    let limits = data.limits || {};
-    const plan = data.currentPlan || currentPlan || 'free';
-    const planTmpl = data.planLimitsAll || defaultLimits;
-
-    // 1) 완전 삭제: gpt-4-1-mini
-    if (counts['gpt-4-1-mini']) delete counts['gpt-4-1-mini'];
-    if (limits['gpt-4-1-mini']) delete limits['gpt-4-1-mini'];
-
-    // 2) GPT-4-5는 Pro 전용: Plus/Team 저장된 limits에서 제거
-    if ((plan === 'plus' || plan === 'team') && limits['gpt-4-5']) {
-      delete limits['gpt-4-5'];
-    }
-
-    // 3) 플랜별 정책 보정
-    if (plan === 'team') {
-      // Team: 최신 템플릿 전체 적용
-      limits = { ...planTmpl.team };
-    } else if (plan === 'plus') {
-      // Plus: gpt-5 3시간 160, gpt-5-thinking 주 3000
-      limits['gpt-5'] = { type: 'threeHour', value: 160 };
-      limits['gpt-5-thinking'] = { type: 'weekly', value: 3000 };
-      // 기타 키는 기존 값 유지 (필요 시 기본값 병합 가능)
-    } else if (plan === 'free') {
-      // Free: gpt-4o, o4-mini 사용 불가
-      if (counts['gpt-4o']) delete counts['gpt-4o'];
-      if (counts['o4-mini']) delete counts['o4-mini'];
-      if (limits['gpt-4o']) delete limits['gpt-4o'];
-      if (limits['o4-mini']) delete limits['o4-mini'];
-      limits['gpt-5'] = { type: 'fiveHour', value: 10 };
-    }
-
-    await chrome.storage.local.set({ usageCounts: counts, limits });
-  } catch (e) {
-    console.warn('정책 마이그레이션(2025-08) 실패:', e);
-  }
-}
-
-// o4-mini-high -> o4-mini 마이그레이션 (사용량/한도) 유틸
-async function migrateO4MiniHigh() {
-  try {
-    const data = await chrome.storage.local.get(['usageCounts', 'limits']);
-    const counts = data.usageCounts || {};
-    const limits = data.limits || {};
-
-    // 사용량 합치기
-    if (counts['o4-mini-high']) {
-      const src = counts['o4-mini-high'];
-      const dst = counts['o4-mini'] || {};
-
-      // timestamps 기반 합치기
-      if (src.timestamps || dst.timestamps) {
-        const a = Array.isArray(dst.timestamps) ? dst.timestamps : [];
-        const b = Array.isArray(src.timestamps) ? src.timestamps : [];
-        const merged = Array.from(new Set([...(a || []), ...(b || [])])).sort();
-        dst.timestamps = merged;
-      }
-      // 레거시 카운터 합치기
-      dst.daily = (dst.daily || 0) + (src.daily || 0);
-      dst.monthly = (dst.monthly || 0) + (src.monthly || 0);
-      dst.threeHour = (dst.threeHour || 0) + (src.threeHour || 0);
-
-      counts['o4-mini'] = dst;
-      delete counts['o4-mini-high'];
-    }
-
-    // limits에서 제거
-    if (limits['o4-mini-high']) {
-      delete limits['o4-mini-high'];
-    }
-
-    await chrome.storage.local.set({ usageCounts: counts, limits });
-  } catch (e) {
-    console.warn('o4-mini-high 마이그레이션 실패:', e);
-  }
-}
-
-// 현재 사용자 플랜 (초기값: free, 나중에 설정 UI에서 변경 가능)
 let currentPlan = 'free';
 
-// storage 초기화
 chrome.runtime.onInstalled.addListener((details) => {
   (async () => {
     try {
@@ -407,12 +38,16 @@ chrome.runtime.onInstalled.addListener((details) => {
         'timestampFormat',
         'hoverToolbarTone',
         'hoverToolbarIncludeTimestamp',
+        'currentPlan',
       ]);
 
       const needPrefsInit = !prefs.__prefsInitialized;
       const installReasonIsInstall = reason === installedReasonEnum.INSTALL;
-
       const shouldInitializeDefaults = installReasonIsInstall || needPrefsInit;
+
+      if (prefs.currentPlan) {
+        currentPlan = prefs.currentPlan;
+      }
 
       if (shouldInitializeDefaults) {
         const updates = { __prefsInitialized: true };
@@ -468,35 +103,47 @@ chrome.runtime.onInstalled.addListener((details) => {
           deepResearch: initialDr,
         });
       }
-    } catch (_) {}
-    // 오래된 데이터 정리 알람
+    } catch (error) {
+      console.warn('초기 환경 설정 실패:', error);
+    }
+
     chrome.alarms.create('cleanupData', { periodInMinutes: 24 * 60 });
-    // 플랜 한도 주기 동기화 알람 (6시간마다)
     chrome.alarms.create('refreshPlanLimits', { periodInMinutes: 6 * 60 });
-    // 원격 플랜 동기화 시도
-    await refreshPlanLimitsFromRemote();
-    await migrateModelAliases();
-    // 마이그레이션 수행
-    migrateO4MiniHigh();
-    migratePolicy2025_08();
+
+    try {
+      await refreshPlanLimitsFromRemote(currentPlan);
+      await migrateModelAliases(currentPlan);
+      await migrateO4MiniHigh();
+      await migratePolicy2025_08(currentPlan);
+    } catch (error) {
+      console.warn('초기 동기화 및 마이그레이션 실패:', error);
+    }
   })();
 });
 
-// 브라우저 시작 시에도 마이그레이션 보장
 chrome.runtime.onStartup.addListener(() => {
   (async () => {
+    const stored = await chrome.storage.local.get('currentPlan');
+    if (stored?.currentPlan) {
+      currentPlan = stored.currentPlan;
+    }
+
     const { userLocale } = await chrome.storage.local.get('userLocale');
     await bgLoadLocaleDict(userLocale);
-    // 주기 동기화 알람 보장
+
     chrome.alarms.create('refreshPlanLimits', { periodInMinutes: 6 * 60 });
-    await refreshPlanLimitsFromRemote();
-    await migrateModelAliases();
-    migrateO4MiniHigh();
-    migratePolicy2025_08();
+
+    try {
+      await refreshPlanLimitsFromRemote(currentPlan);
+      await migrateModelAliases(currentPlan);
+      await migrateO4MiniHigh();
+      await migratePolicy2025_08(currentPlan);
+    } catch (error) {
+      console.warn('시작 시 동기화 실패:', error);
+    }
   })();
 });
 
-// watch locale changes
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.userLocale) {
     const v = changes.userLocale.newValue;
@@ -504,24 +151,21 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// 데이터 정리 알람은 직접 onInstalled에서 등록
-
 chrome.alarms.onAlarm.addListener((alarm) => {
-  // 데이터 정리 알람만 처리
   if (alarm.name === 'cleanupData') {
     cleanupOldData();
-
-    // 배지 업데이트 (타임스탬프 기반으로 계산)
     chrome.storage.local.get('usageCounts', (data) => {
       updateBadge(data.usageCounts || {});
     });
   } else if (alarm.name === 'refreshPlanLimits') {
-    // 원격 플랜 동기화 (주기)
-    refreshPlanLimitsFromRemote();
+    refreshPlanLimitsFromRemote(currentPlan)
+      .catch(() => {})
+      .finally(() => {
+        migrateModelAliases(currentPlan).catch(() => {});
+      });
   }
 });
 
-// 메시지 처리 (fetch-hook에서의 최소 Deep Research 통신만 유지)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'deep_research_info' && message.info) {
     console.log('🔍 Content script로부터 Deep Research 정보 수신:', message.info);
@@ -529,7 +173,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       const { remaining, reset_after } = message.info;
 
-      // storage 업데이트
       chrome.storage.local.get(['deepResearch', 'currentPlan'], (data) => {
         const dr = data.deepResearch || {};
         const plan = data.currentPlan || currentPlan;
@@ -544,9 +187,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.storage.local.set({ deepResearch: dr });
         console.log('💾 Deep Research 정보 저장 완료 (fetch hook):', dr);
 
-        // 배지 업데이트 (선택적)
         if (remaining <= 10) {
-          // 적은 횟수일 경우 배지에 표시
           chrome.action.setBadgeText({ text: `DR:${remaining}` });
           chrome.action.setBadgeBackgroundColor({ color: remaining <= 5 ? '#FF0000' : '#FFA500' });
         }
@@ -556,18 +197,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
 
-  // Deep Research 남은 횟수 저장
   if (message.type === 'deepResearchRemaining') {
     chrome.storage.local.get(['deepResearch', 'currentPlan'], (data) => {
       const dr = data.deepResearch || {};
-      // 남은 횟수 업데이트
       dr.remaining = message.remaining;
-      // 플랜에 따른 전체 한도 설정
       const plan = data.currentPlan || currentPlan;
       const tmpl = data.planLimitsAll || defaultLimits;
       const def = tmpl[plan] && tmpl[plan]['deep-research'];
       dr.total = def && def.value != null ? def.value : dr.total;
-      // init API body에서 전달된 resetTime(seconds or ISO) 처리
       if (message.resetTime != null) {
         const rt = message.resetTime;
         dr.resetAt = new Date(rt).getTime();
@@ -579,7 +216,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 플랜 변경
   if (message.type === 'changePlan' && message.plan) {
     currentPlan = message.plan;
     chrome.storage.local.get(['planLimitsAll', 'deepResearch'], (data2) => {
@@ -598,11 +234,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 원격 플랜 한도 즉시 동기화
   if (message.type === 'refreshPlanLimits') {
     (async () => {
-      const result = await refreshPlanLimitsFromRemote();
-      sendResponse(result);
+      try {
+        const result = await refreshPlanLimitsFromRemote(currentPlan);
+        await migrateModelAliases(currentPlan);
+        sendResponse(result);
+      } catch (error) {
+        console.warn('플랜 동기화 메시지 처리 실패:', error);
+        sendResponse({ updated: false });
+      }
     })();
     return true;
   }
@@ -610,7 +251,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// WebRequest를 이용해 모델 메시지 카운트를 측정 (MV3 관찰용 사용)
 try {
   const URL_FILTERS = [
     'https://chat.openai.com/*',
@@ -621,17 +261,14 @@ try {
   chrome.webRequest.onBeforeRequest.addListener(
     async (details) => {
       try {
-        // POST /backend-api/(f/)?conversation 만 대상
         if (details.method !== 'POST') return;
         const u = details.url || '';
         const test = new URL(u).pathname;
         if (!/^\/backend-api\/(?:f\/)?conversation(?:\/)?$/.test(test)) return;
 
-        // requestBody에서 JSON 파싱
         const rb = details.requestBody;
         let bodyText = '';
         if (rb?.raw && Array.isArray(rb.raw) && rb.raw.length > 0) {
-          // raw ArrayBuffer 합치기
           const totalLen = rb.raw.reduce((sum, p) => sum + (p.bytes ? p.bytes.byteLength : 0), 0);
           const buf = new Uint8Array(totalLen);
           let offset = 0;
@@ -644,7 +281,6 @@ try {
           }
           bodyText = new TextDecoder('utf-8').decode(buf);
         } else if (rb?.formData) {
-          // 폼데이터인 경우에도 모델 필드를 찾을 수 있으면 사용
           const modelField = rb.formData.model;
           if (Array.isArray(modelField) && modelField[0]) {
             updateModelUsageWithWorkspace(modelField[0], 'default');
@@ -671,181 +307,4 @@ try {
   console.warn('webRequest 초기화 실패:', e);
 }
 
-// 중복된 updateModelUsage 제거 (timestamps 기반 로직만 유지)
-
-// workspace별 모델 사용량 업데이트 함수
-async function updateModelUsageWithWorkspace(model, workspaceId) {
-  try {
-    const data = await chrome.storage.local.get(['usageCounts', 'limits', 'currentPlan']);
-    const counts = data.usageCounts || {};
-    const limits = data.limits || defaultLimits[data.currentPlan || 'free'];
-
-    // 모델 라우팅: detect/aliases를 고려하여 캐노니컬 키로 매핑
-    const canonical = resolveCanonicalModel(model, limits);
-
-    // workspace별로 카운트 관리 - 새 배열 기반 시스템
-    if (!counts[canonical]) {
-      counts[canonical] = {
-        // 타임스탬프 배열로 모든 요청 시간 저장
-        timestamps: [],
-      };
-    }
-
-    // timestamps 배열이 없으면 초기화
-    if (!counts[canonical].timestamps) {
-      counts[canonical].timestamps = [];
-    }
-
-    // 현재 타임스탬프 추가
-    const now = Date.now();
-    counts[canonical].timestamps.push(now);
-
-    // 사용량은 항상 저장하고 배지를 갱신 (한도 존재 여부 무관)
-    await chrome.storage.local.set({ usageCounts: counts });
-    updateBadge(counts);
-
-    // 한도가 정의된 모델만 경고 처리
-    if (limits[canonical]) {
-      const limitType = limits[canonical].type;
-      const limitValue = limits[canonical].value;
-      if (limitType !== 'unlimited') {
-        const currentCount = getCountByType(counts[canonical].timestamps, limitType);
-        if (limitValue && currentCount >= limitValue * NOTIFY_THRESHOLD) {
-          const title = t('usage_warning_title');
-          const percent = String(Math.round(NOTIFY_THRESHOLD * 100));
-          const msg = t('usage_warning_message', [
-            canonical,
-            getLimitLabel(limitType),
-            percent,
-            String(currentCount),
-            String(limitValue),
-          ]);
-          chrome.notifications.create({
-            type: 'basic',
-            iconUrl: 'icons/icon48.png',
-            title: title || 'Usage Warning',
-            message: msg,
-          });
-        }
-      }
-    }
-  } catch (error) {
-    console.error('[Background] 모델 사용량 업데이트 에러:', error);
-  }
-}
-
-// 모델명을 limits 스키마 기반으로 캐노니컬 키로 변환
-function resolveCanonicalModel(incomingModel, planLimits) {
-  if (!planLimits || typeof planLimits !== 'object') return incomingModel;
-  // 정확 일치 우선
-  if (planLimits[incomingModel]) return incomingModel;
-  try {
-    for (const [key, cfg] of Object.entries(planLimits)) {
-      if (!cfg || typeof cfg !== 'object') continue;
-      const list = Array.isArray(cfg.detect) ? cfg.detect : [];
-      if (list.includes(incomingModel)) return key;
-    }
-    // 원격 limits에 detect가 없을 수 있으므로 로컬 기본 템플릿도 확인
-    const fallback = defaultLimits[currentPlan] || {};
-    for (const [key, cfg] of Object.entries(fallback)) {
-      if (!cfg || typeof cfg !== 'object') continue;
-      const list = Array.isArray(cfg.detect) ? cfg.detect : [];
-      if (list.includes(incomingModel)) return key;
-    }
-  } catch {}
-  return incomingModel;
-}
-
-// 기존 alias 키(예: gpt-5-instant)를 캐노니컬(예: gpt-5)로 병합
-async function migrateModelAliases() {
-  try {
-    const data = await chrome.storage.local.get(['usageCounts', 'planLimitsAll', 'currentPlan']);
-    const counts = data.usageCounts || {};
-    const tmplAll = data.planLimitsAll || defaultLimits;
-    const plan = data.currentPlan || currentPlan || 'free';
-    const planLimits = tmplAll[plan] || {};
-
-    let changed = false;
-    // alias -> canonical 매핑 구성
-    const aliasToCanonical = {};
-    for (const [key, cfg] of Object.entries(planLimits)) {
-      const list = Array.isArray(cfg?.detect) ? cfg.detect : [];
-      for (const alias of list) {
-        if (alias !== key) aliasToCanonical[alias] = key;
-      }
-    }
-
-    // 병합 수행
-    for (const [alias, canonical] of Object.entries(aliasToCanonical)) {
-      if (counts[alias]) {
-        const src = counts[alias];
-        const dst = counts[canonical] || {};
-        // timestamps 병합
-        const a = Array.isArray(dst.timestamps) ? dst.timestamps : [];
-        const b = Array.isArray(src.timestamps) ? src.timestamps : [];
-        const merged = Array.from(new Set([...(a || []), ...(b || [])])).sort();
-        dst.timestamps = merged;
-        // 레거시 카운터 합치기
-        dst.daily = (dst.daily || 0) + (src.daily || 0);
-        dst.monthly = (dst.monthly || 0) + (src.monthly || 0);
-        dst.threeHour = (dst.threeHour || 0) + (src.threeHour || 0);
-
-        counts[canonical] = dst;
-        delete counts[alias];
-        changed = true;
-      }
-    }
-
-    if (changed) await chrome.storage.local.set({ usageCounts: counts });
-  } catch (e) {
-    console.warn('모델 alias 마이그레이션 실패:', e);
-  }
-}
-
-// Deep Research 데이터는 기존 응답 처리 및 content script 메시지로 처리하므로 별도 리스너 불필요
-
-// 뱃지 텍스트 업데이트 (전체 일일 합계)
-function updateBadge(counts) {
-  let totalDaily = 0;
-  for (const model in counts) {
-    if (model !== '_lastReset' && counts[model].timestamps) {
-      // 각 모델의 일간 카운트 계산 (타임스탬프 배열 기반)
-      totalDaily += getCountByType(counts[model].timestamps, 'daily');
-    }
-  }
-  chrome.action.setBadgeText({ text: totalDaily > 0 ? String(totalDaily) : '' });
-  chrome.action.setBadgeBackgroundColor({ color: '#0078D4' });
-}
-
-// 정기적인 데이터 정리 함수 - 오래된 타임스탬프 제거 (6개월 이상)
-function cleanupOldData() {
-  chrome.storage.local.get('usageCounts', (data) => {
-    const counts = data.usageCounts || {};
-    const sixMonthsAgo = Date.now() - 180 * 24 * 60 * 60 * 1000; // 약 6개월
-
-    let changed = false;
-
-    // 모든 모델에 대해 처리
-    for (const model in counts) {
-      if (model === '_lastReset') continue;
-
-      if (counts[model].timestamps && Array.isArray(counts[model].timestamps)) {
-        // 6개월 이전 타임스탬프는 제거
-        const newTimestamps = counts[model].timestamps.filter((ts) => ts >= sixMonthsAgo);
-
-        if (newTimestamps.length !== counts[model].timestamps.length) {
-          counts[model].timestamps = newTimestamps;
-          changed = true;
-        }
-      }
-    }
-
-    // 변경된 경우에만 저장
-    if (changed) {
-      chrome.storage.local.set({ usageCounts: counts });
-    }
-  });
-}
-
-// 초기 뱃지 업데이트
 chrome.storage.local.get('usageCounts', (data) => updateBadge(data.usageCounts || {}));
