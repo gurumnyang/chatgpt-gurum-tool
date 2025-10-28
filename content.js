@@ -94,9 +94,7 @@ function createScrollControls() {
   // ChatGPT UI는 tailwind 유틸 클래스 조합을 사용하므로 overflow-y-auto 를 기준으로 가장 적절한 flex column 컨테이너를 선택
   function getScrollTarget() {
     // 가장 먼저 명시적으로 overflow-y-auto 가 포함된 div 후보 수집
-    const candidates = Array.from(
-      document.querySelectorAll('div[class*="overflow-y-auto"]') || [],
-    );
+    const candidates = Array.from(document.querySelectorAll('div[class*="overflow-y-auto"]') || []);
     // 우선순위: flex + flex-col + h-full
     const fullMatch = candidates.find((el) => {
       const cls = el.className || '';
@@ -583,33 +581,75 @@ try {
 } catch {}
 
 function extractConversation(startId, endId) {
-  // Extract messages, fallback to older DOM structure if necessary
   const chatThread = [];
-  let messageEls = document.querySelectorAll('div[data-message-author-role][data-message-id]');
-  // Fallback for older ChatGPT DOM
-  if (!messageEls.length) {
-    messageEls = document.querySelectorAll('div.group.w-full');
-  }
-  messageEls.forEach((msgEl) => {
-    // ID and sender detection
-    const id = msgEl.getAttribute('data-message-id') || '';
-    let sender = msgEl.getAttribute('data-message-author-role');
-    if (!sender) {
-      // Fallback: detect by user-icon presence
-      sender = msgEl.querySelector("svg[data-icon='user']") ? 'user' : 'assistant';
-    }
-    // 메시지 콘텐츠 조회: user/assistant 공통
-    let contentEl = msgEl.querySelector('div.whitespace-pre-wrap');
-    if (!contentEl) contentEl = msgEl.querySelector('div.markdown');
-    // Fallback: generic content container
-    if (!contentEl) contentEl = msgEl.querySelector('div.text-base');
-    if (!contentEl) return;
-    // 불필요 버튼 제거
-    contentEl.querySelectorAll('button').forEach((btn) => btn.remove());
-    const html = contentEl.innerHTML.trim().replace(/\n/g, '<br>');
-    const content = contentEl.innerText.trim();
-    chatThread.push({ id, sender, html, content });
+  const seenIds = new Set();
+  let capturing = !startId;
+
+  // 새 UI에서는 article[data-testid^="conversation-turn"] 내에 메시지가 중첩됨
+  const collected = [];
+  document.querySelectorAll('article[data-testid^="conversation-turn"]').forEach((article) => {
+    article
+      .querySelectorAll('div[data-message-author-role][data-message-id]')
+      .forEach((msg) => collected.push(msg));
   });
+
+  if (!collected.length) {
+    document
+      .querySelectorAll('div[data-message-author-role][data-message-id]')
+      .forEach((msg) => collected.push(msg));
+  }
+
+  if (!collected.length) return chatThread;
+
+  const CLEAN_ATTRS = [
+    'data-start',
+    'data-end',
+    'data-sourcepos',
+    'data-is-last-node',
+    'data-is-only-node',
+  ];
+
+  for (const msgEl of collected) {
+    const id = msgEl.getAttribute('data-message-id') || '';
+    if (!id || seenIds.has(id)) continue;
+
+    if (!capturing) {
+      if (id === startId) capturing = true;
+      else continue;
+    }
+
+    let sender = msgEl.getAttribute('data-message-author-role') || '';
+    if (!sender) sender = msgEl.querySelector("svg[data-icon='user']") ? 'user' : 'assistant';
+
+    const cloned = msgEl.cloneNode(true);
+    cloned.querySelectorAll('.chatgpt-time-container').forEach((el) => el.remove());
+    cloned.querySelectorAll('button').forEach((btn) => btn.remove());
+    CLEAN_ATTRS.forEach((attr) => {
+      cloned.querySelectorAll(`[${attr}]`).forEach((node) => node.removeAttribute(attr));
+    });
+
+    const contentEl =
+      cloned.querySelector('div.whitespace-pre-wrap') ||
+      cloned.querySelector('div.markdown') ||
+      cloned.querySelector('[data-testid="markdown"]') ||
+      cloned.querySelector('[data-message-content]') ||
+      cloned.querySelector('div.text-base') ||
+      cloned;
+
+    const html = contentEl.innerHTML.trim().replace(/\n/g, '<br>');
+    const content = contentEl.textContent.trim();
+    if (!content) {
+      seenIds.add(id);
+      if (endId && id === endId) break;
+      continue;
+    }
+
+    chatThread.push({ id, sender, html, content });
+    seenIds.add(id);
+
+    if (endId && id === endId) break;
+  }
+
   return chatThread;
 }
 // 전역 참조를 위해 window에 할당
