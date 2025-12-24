@@ -3,17 +3,17 @@
   "updatedAt": "2025-09-03T00:00:00Z",
   "plans": {
     "free": {
-      "gpt-5": {
+      "gpt-5-2": {
         "type": "fiveHour",
         "value": 10,
-        "displayName": "GPT-5",
-        "detect": ["auto", "gpt-5", "gpt-5-instant"]
+        "displayName": "GPT-5-2",
+        "detect": ["auto", "gpt-5-2", "gpt-5-2-instant"]
       },
-      "gpt-5-thinking": {
+      "gpt-5-2-thinking": {
         "type": "daily",
         "value": 1,
-        "displayName": "GPT-5 Thinking",
-        "detect": ["gpt-5-thinking"]
+        "displayName": "GPT-5-2 Thinking",
+        "detect": ["gpt-5-2-thinking"]
       },
       "deep-research": { "type": "monthly", "value": 5, "displayName": "Deep Research" }
     },
@@ -27,17 +27,17 @@
       },
       "o3": { "type": "weekly", "value": 100, "displayName": "o3", "detect": ["o3"] },
       "o4-mini": { "type": "daily", "value": 300, "displayName": "o4-mini", "detect": ["o4-mini"] },
-      "gpt-5": {
+      "gpt-5-2": {
         "type": "threeHour",
         "value": 160,
         "displayName": "GPT-5",
-        "detect": ["gpt-5", "gpt-5-instant"]
+        "detect": ["gpt-5-2", "gpt-5-2-instant"]
       },
-      "gpt-5-thinking": {
+      "gpt-5-2-thinking": {
         "type": "weekly",
         "value": 200,
-        "displayName": "GPT-5 Thinking",
-        "detect": ["gpt-5-thinking"]
+        "displayName": "GPT-5-2 Thinking",
+        "detect": ["gpt-5-2-thinking"]
       },
       "gpt-5-t-mini": {
         "type": "weekly",
@@ -65,14 +65,14 @@
       "gpt-5": {
         "type": "unlimited",
         "value": null,
-        "displayName": "GPT-5",
-        "detect": ["gpt-5", "gpt-5-instant"]
+        "displayName": "GPT-5-2",
+        "detect": ["gpt-5-2", "gpt-5-2-instant"]
       },
-      "gpt-5-thinking": {
+      "gpt-5-2-thinking": {
         "type": "weekly",
         "value": 200,
-        "displayName": "GPT-5 Thinking",
-        "detect": ["gpt-5-thinking"]
+        "displayName": "GPT-5-2 Thinking",
+        "detect": ["gpt-5-2-thinking"]
       },
       "gpt-5-t-mini": {
         "type": "weekly",
@@ -80,11 +80,11 @@
         "displayName": "GPT-5 Thinking mini",
         "detect": ["gpt-5-t-mini"]
       },
-      "gpt-5-pro": {
+      "gpt-5-2-pro": {
         "type": "monthly",
         "value": 15,
-        "displayName": "GPT-5 Pro",
-        "detect": ["gpt-5-pro"]
+        "displayName": "GPT-5-2 Pro",
+        "detect": ["gpt-5-2-pro"]
       },
       "deep-research": { "type": "monthly", "value": 25, "displayName": "Deep Research" }
     },
@@ -114,13 +114,13 @@
         "displayName": "o4-mini",
         "detect": ["o4-mini"]
       },
-      "gpt-5": {
+      "gpt-5-2": {
         "type": "unlimited",
         "value": null,
         "displayName": "GPT-5",
         "detect": ["gpt-5", "gpt-5-instant"]
       },
-      "gpt-5-thinking": {
+      "gpt-5-2-thinking": {
         "type": "unlimited",
         "value": null,
         "displayName": "GPT-5 Thinking",
@@ -132,7 +132,7 @@
         "displayName": "GPT-5 Thinking mini",
         "detect": ["gpt-5-t-mini"]
       },
-      "gpt-5-pro": {
+      "gpt-5-2-pro": {
         "type": "unlimited",
         "value": null,
         "displayName": "GPT-5 Pro",
