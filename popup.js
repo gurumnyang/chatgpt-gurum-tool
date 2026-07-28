@@ -78,14 +78,94 @@ function applyTheme(theme) {
   document.body.setAttribute('data-theme', th);
 }
 
-// 모델별 사용량, 한도, Deep Research, 컨텍스트 크기 등 표시
-async function renderUsage() {
-  // Deep Research 먼저 업데이트
-  updateDeepResearchFromContent();
+function isChatGptTab(tab) {
+  if (!tab || typeof tab.id !== 'number' || !tab.url) return false;
+  try {
+    const { hostname, protocol } = new URL(tab.url);
+    return protocol === 'https:' && (hostname === 'chatgpt.com' || hostname === 'chat.openai.com');
+  } catch {
+    return false;
+  }
+}
 
+function getActiveChatTab() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      const tab = tabs && tabs[0];
+      resolve(isChatGptTab(tab) ? tab : null);
+    });
+  });
+}
+
+function sendTabMessage(tabId, message) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(response || null);
+    });
+  });
+}
+
+function sendRuntimeMessage(message) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(response || null);
+    });
+  });
+}
+
+async function notifyActiveChatTab(message) {
+  const tab = await getActiveChatTab();
+  if (!tab) return false;
+  return (await sendTabMessage(tab.id, message)) !== null;
+}
+
+function appendTextElement(parent, tagName, className, text) {
+  const element = document.createElement(tagName);
+  if (className) element.className = className;
+  element.textContent = String(text);
+  parent.appendChild(element);
+  return element;
+}
+
+let renderUsagePromise = null;
+let renderUsageRequested = false;
+
+// 모델별 사용량, 한도, Deep Research, 컨텍스트 크기 등 표시
+function renderUsage() {
+  if (renderUsagePromise) {
+    renderUsageRequested = true;
+    return renderUsagePromise;
+  }
+  renderUsagePromise = (async () => {
+    do {
+      renderUsageRequested = false;
+      await renderUsageInternal();
+    } while (renderUsageRequested);
+  })().finally(() => {
+    renderUsagePromise = null;
+  });
+  return renderUsagePromise;
+}
+
+async function renderUsageInternal() {
   // storage에서 데이터 불러오기
   const data = await new Promise((resolve) => {
-    chrome.storage.local.get(['usageCounts', 'limits', 'deepResearch', 'currentPlan'], resolve);
+    chrome.storage.local.get(
+      ['usageCounts', 'limits', 'deepResearch', 'currentPlan', 'popupTheme'],
+      resolve,
+    );
   });
   const usageCounts = data.usageCounts || {};
   const limits = data.limits || {};
@@ -97,8 +177,7 @@ async function renderUsage() {
   const modeLabelEl = document.getElementById('contextModeLabel');
   const isInferenceMode = !!(toggleEl && toggleEl.checked);
   // apply theme early
-  const { popupTheme } = await new Promise((r) => chrome.storage.local.get('popupTheme', r));
-  applyTheme(popupTheme || 'light');
+  applyTheme(data.popupTheme || 'light');
 
   // 타입에 따른 카운트 계산 함수 추가
   function getCountByType(timestamps, type) {
@@ -115,13 +194,28 @@ async function renderUsage() {
         cutoffTime = now - 3 * 60 * 60 * 1000; // 3시간 전
         break;
       case 'daily':
-        cutoffTime = now - 24 * 60 * 60 * 1000; // 24시간(1일) 전
+        {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          cutoffTime = today.getTime();
+        }
         break;
       case 'weekly':
-        cutoffTime = now - 7 * 24 * 60 * 60 * 1000; // 7일 전
+        {
+          const thisMonday = new Date();
+          thisMonday.setHours(0, 0, 0, 0);
+          const daysSinceMonday = (thisMonday.getDay() + 6) % 7;
+          thisMonday.setDate(thisMonday.getDate() - daysSinceMonday);
+          cutoffTime = thisMonday.getTime();
+        }
         break;
       case 'monthly':
-        cutoffTime = now - 30 * 24 * 60 * 60 * 1000; // 30일 전
+        {
+          const thisMonth = new Date();
+          thisMonth.setDate(1);
+          thisMonth.setHours(0, 0, 0, 0);
+          cutoffTime = thisMonth.getTime();
+        }
         break;
       default:
         cutoffTime = 0;
@@ -133,7 +227,7 @@ async function renderUsage() {
 
   // 모델별 사용량 리스트
   const modelUsageList = document.getElementById('modelUsageList');
-  modelUsageList.innerHTML = '';
+  modelUsageList.replaceChildren();
   // gpt-5 계열 우선 정렬 (그 외는 알파벳 정렬)
   const gpt5Rank = { 'gpt-5': 0, 'gpt-5-thinking': 1, 'gpt-5-pro': 2 };
   const sortedModels = Object.keys(limits)
@@ -189,7 +283,7 @@ async function renderUsage() {
       }
     }
     // 퍼센트 계산
-    let percent = total ? Math.min(used / total, 1) : 0;
+    const percent = total ? Math.min(used / total, 1) : 0;
     let barClass = '';
     if (percent >= 0.95) barClass = 'danger';
     else if (percent >= 0.8) barClass = 'warning';
@@ -207,14 +301,23 @@ async function renderUsage() {
       }[type] || t('limit_label_daily');
 
     div.className = 'model-item';
-    div.innerHTML = `
-      <span class="model-name">${displayName}</span>
-      <span class="model-usage">
-        <span class="usage-count ${barClass}">${used}</span>
-        <span class="usage-limit"> / ${total ? total : '∞'} (${labelType})</span>
-        <div class="progress-bar"><div class="progress-fill ${barClass}" style="width:${percent * 100}%"></div></div>
-      </span>
-    `;
+    appendTextElement(div, 'span', 'model-name', displayName);
+    const modelUsage = appendTextElement(div, 'span', 'model-usage', '');
+    appendTextElement(modelUsage, 'span', `usage-count ${barClass}`.trim(), used);
+    appendTextElement(
+      modelUsage,
+      'span',
+      'usage-limit',
+      ` / ${total ? total : '∞'} (${labelType})`,
+    );
+    const progressBar = appendTextElement(modelUsage, 'div', 'progress-bar', '');
+    const progressFill = appendTextElement(
+      progressBar,
+      'div',
+      `progress-fill ${barClass}`.trim(),
+      '',
+    );
+    progressFill.style.width = `${percent * 100}%`;
     modelUsageList.appendChild(div);
   });
 
@@ -226,83 +329,115 @@ async function renderUsage() {
     if (drPercent <= 0.05) drClass = 'danger';
     else if (drPercent <= 0.2) drClass = 'warning';
   }
-  drCount.innerHTML = `
-    <span class="remaining-count ${drClass}">${deepResearch.remaining}</span>
-    <span class="total-limit"> / ${deepResearch.total ? deepResearch.total : '?'}${t('times_suffix')}</span>
-    <span class="reset-time">${deepResearch.resetAt ? t('reset_until_prefix') + ' ' + formatCountdown(deepResearch.resetAt) : ''}</span>
-    <div class="data-source">${t('refresh_to_update')}</div>
-  `;
+  drCount.replaceChildren();
+  appendTextElement(drCount, 'span', `remaining-count ${drClass}`.trim(), deepResearch.remaining);
+  appendTextElement(
+    drCount,
+    'span',
+    'total-limit',
+    ` / ${deepResearch.total ? deepResearch.total : '?'}${t('times_suffix')}`,
+  );
+  appendTextElement(
+    drCount,
+    'span',
+    'reset-time',
+    deepResearch.resetAt
+      ? `${t('reset_until_prefix')} ${formatCountdown(deepResearch.resetAt)}`
+      : '',
+  );
+  appendTextElement(drCount, 'div', 'data-source', t('refresh_to_update'));
   // 컨텍스트 크기(토큰/문자)
   const contextDiv = document.getElementById('contextSize');
-  getContextSize().then((size) => {
-    if (!size) {
-      contextDiv.textContent = '-';
-      return;
-    }
+  const size = await getContextSize();
+  if (!size) {
+    contextDiv.textContent = '-';
+    return;
+  }
 
-    // 컨텍스트 한도: 모드에 따라 계산
-    let contextLimit;
-    if (isInferenceMode) {
-      // 추론 모델(o3, o4-mini, gpt-5-thinking): 현재는 플랜 무관 196K
-      const inf = { free: 196000, plus: 196000, team: 196000, pro: 196000 };
-      contextLimit = inf[plan] || 196000;
-      if (modeLabelEl) modeLabelEl.textContent = t('current_mode_inference');
-    } else {
-      // 베이스 모델: 사이트 제공값 우선, 없으면 플랜 기본값
-      contextLimit =
-        size.contextLimit ||
-        {
-          free: 8192, // 8K
-          plus: 32768, // 32K
-          team: 32768, // 32K
-          pro: 131072, // 128K
-        }[plan] ||
-        8192;
-      if (modeLabelEl) modeLabelEl.textContent = t('current_mode_base');
-    }
+  // 컨텍스트 한도: 모드에 따라 계산
+  let contextLimit;
+  if (isInferenceMode) {
+    // 추론 모델(o3, o4-mini, gpt-5-thinking): 현재는 플랜 무관 196K
+    const inf = { free: 196000, plus: 196000, team: 196000, pro: 196000 };
+    contextLimit = inf[plan] || 196000;
+    if (modeLabelEl) modeLabelEl.textContent = t('current_mode_inference');
+  } else {
+    // 베이스 모델: 사이트 제공값 우선, 없으면 플랜 기본값
+    contextLimit =
+      size.contextLimit ||
+      {
+        free: 8192, // 8K
+        plus: 32768, // 32K
+        team: 32768, // 32K
+        pro: 131072, // 128K
+      }[plan] ||
+      8192;
+    if (modeLabelEl) modeLabelEl.textContent = t('current_mode_base');
+  }
 
-    // 토큰 수와 문자 수 표시
-    const tokens = size.tokens || Math.ceil(size.chars * 0.25);
-    const chars = size.chars;
+  // 토큰 수와 문자 수 표시
+  const tokens = size.tokens || Math.ceil(size.chars * 0.25);
+  const chars = size.chars;
 
-    // 사용률 계산 (토큰 기준)
-    const usageRatio = tokens / contextLimit;
-    let statusClass = '';
-    if (usageRatio >= 0.9) statusClass = 'danger';
-    else if (usageRatio >= 0.7) statusClass = 'warning';
+  // 사용률 계산 (토큰 기준)
+  const usageRatio = tokens / contextLimit;
+  let statusClass = '';
+  if (usageRatio >= 0.9) statusClass = 'danger';
+  else if (usageRatio >= 0.7) statusClass = 'warning';
 
-    // 좌: 글자수, 우: 토큰 형식으로 표시
-    contextDiv.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <span style="font-size: 15px; font-weight: 600;">${chars.toLocaleString()}</span>
-          <span style="font-size: 12px; color: var(--muted);">${t('chars_label')}</span>
-        </div>
-        <div style="text-align: right;">
-          <span style="font-size: 15px; font-weight: 600;" class="${statusClass}">${tokens.toLocaleString()}</span>
-          <span style="font-size: 12px; color: var(--muted);">${t('tokens_label')}</span>
-        </div>
-      </div>
-      <div class="progress-bar" style="width: 100%; margin-top: 8px;">
-        <div class="progress-fill ${statusClass}" style="width: ${Math.min(100, usageRatio * 100)}%"></div>
-      </div>
-      <div style="font-size: 10px; color: var(--muted); text-align: right; margin-top: 4px;">
-        ${t('max_tokens_prefix')} ${contextLimit.toLocaleString()} ${t('tokens_label')}
-      </div>
-    `;
-  });
+  // 좌: 글자수, 우: 토큰 형식으로 표시
+  contextDiv.replaceChildren();
+  const summary = appendTextElement(contextDiv, 'div', '', '');
+  summary.style.display = 'flex';
+  summary.style.justifyContent = 'space-between';
+  summary.style.alignItems = 'center';
+
+  const charSummary = appendTextElement(summary, 'div', '', '');
+  const charCount = appendTextElement(charSummary, 'span', '', chars.toLocaleString());
+  charCount.style.fontSize = '15px';
+  charCount.style.fontWeight = '600';
+  const charLabel = appendTextElement(charSummary, 'span', '', t('chars_label'));
+  charLabel.style.fontSize = '12px';
+  charLabel.style.color = 'var(--muted)';
+
+  const tokenSummary = appendTextElement(summary, 'div', '', '');
+  tokenSummary.style.textAlign = 'right';
+  const tokenCount = appendTextElement(tokenSummary, 'span', statusClass, tokens.toLocaleString());
+  tokenCount.style.fontSize = '15px';
+  tokenCount.style.fontWeight = '600';
+  const tokenLabel = appendTextElement(tokenSummary, 'span', '', t('tokens_label'));
+  tokenLabel.style.fontSize = '12px';
+  tokenLabel.style.color = 'var(--muted)';
+
+  const progressBar = appendTextElement(contextDiv, 'div', 'progress-bar', '');
+  progressBar.style.width = '100%';
+  progressBar.style.marginTop = '8px';
+  const progressFill = appendTextElement(
+    progressBar,
+    'div',
+    `progress-fill ${statusClass}`.trim(),
+    '',
+  );
+  progressFill.style.width = `${Math.min(100, usageRatio * 100)}%`;
+
+  const maxTokens = appendTextElement(
+    contextDiv,
+    'div',
+    '',
+    `${t('max_tokens_prefix')} ${contextLimit.toLocaleString()} ${t('tokens_label')}`,
+  );
+  maxTokens.style.fontSize = '10px';
+  maxTokens.style.color = 'var(--muted)';
+  maxTokens.style.textAlign = 'right';
+  maxTokens.style.marginTop = '4px';
 }
 
 // 컨텍스트 크기 요청
-function getContextSize() {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0]) return resolve(null);
-      chrome.tabs.sendMessage(tabs[0].id, { type: 'getContextSize' }, (res) => {
-        resolve(res && res.size ? res.size : null);
-      });
-    });
-  });
+async function getContextSize() {
+  const tab = await getActiveChatTab();
+  if (!tab) return null;
+  const response = await sendTabMessage(tab.id, { type: 'getContextSize' });
+  return response && response.size ? response.size : null;
 }
 
 // Deep Research 리셋까지 남은 시간 포맷
@@ -323,7 +458,10 @@ function exportConversation(format) {
       currentWindow: true,
     },
     (tabs) => {
-      if (!tabs[0]) return;
+      if (chrome.runtime.lastError || !tabs || !isChatGptTab(tabs[0])) {
+        alert(t('cannot_export'));
+        return;
+      }
       chrome.tabs.sendMessage(
         tabs[0].id,
         {
@@ -402,7 +540,10 @@ document.getElementById('copyClipboard').onclick = () => {
       currentWindow: true,
     },
     (tabs) => {
-      if (!tabs[0]) return;
+      if (chrome.runtime.lastError || !tabs || !isChatGptTab(tabs[0])) {
+        alert(t('cannot_copy'));
+        return;
+      }
       chrome.tabs.sendMessage(
         tabs[0].id,
         {
@@ -461,8 +602,9 @@ planSelect.addEventListener('change', () => {
   const plan = planSelect.value;
   // 플랜 변경 요청 후 딥리서치 정보 및 UI 업데이트
   chrome.runtime.sendMessage({ type: 'changePlan', plan }, () => {
+    if (chrome.runtime.lastError) return;
     // 딥리서치 resetAt 갱신을 위해 먼저 content에서 정보 가져옴
-    updateDeepResearchFromContent();
+    refreshUsage({ syncDeepResearch: true });
   });
 });
 
@@ -494,8 +636,9 @@ if (refreshRemoteBtn) {
   refreshRemoteBtn.addEventListener('click', () => {
     if (remoteStatusEl) remoteStatusEl.textContent = t('syncing');
     chrome.runtime.sendMessage({ type: 'refreshPlanLimits' }, (res) => {
+      const failed = !!chrome.runtime.lastError;
       if (remoteStatusEl) {
-        if (res && res.updated) {
+        if (!failed && res && res.updated) {
           const ver = res.version ? ` (v:${res.version})` : '';
           remoteStatusEl.textContent = `${t('sync_done')}${ver}`;
         } else {
@@ -512,24 +655,53 @@ if (refreshRemoteBtn) {
   });
 }
 
-// renderUsage 시작 전 Deep Research 최신화 요청
+// Deep Research 최신화 요청 후 background의 기존 저장 계약으로 전달
 async function updateDeepResearchFromContent() {
-  const tabsArr = await new Promise((r) =>
-    chrome.tabs.query({ active: true, currentWindow: true }, r),
-  );
-  const tab = tabsArr[0];
-  if (!tab) return;
-  chrome.tabs.sendMessage(tab.id, { type: 'checkDeepResearchRemaining' }, (res) => {
-    if (chrome.runtime.lastError || !res) return;
-    const remaining = res.remaining;
-    renderUsage();
+  const tab = await getActiveChatTab();
+  if (!tab) return false;
+
+  const response = await sendTabMessage(tab.id, {
+    type: 'checkDeepResearchRemaining',
   });
+  if (!response || response.remaining == null || !Number.isFinite(Number(response.remaining))) {
+    return false;
+  }
+
+  const remaining = Number(response.remaining);
+  const resetCandidate = response.resetTime ?? response.resetAt ?? response.reset_after;
+  const resetTimestamp = resetCandidate == null ? null : new Date(resetCandidate).getTime();
+  const message = {
+    type: 'deepResearchRemaining',
+    remaining,
+  };
+  if (Number.isFinite(resetTimestamp)) message.resetTime = resetTimestamp;
+
+  const saved = await sendRuntimeMessage(message);
+  return saved && saved.status === 'ok';
 }
 
-// 최초 렌더링
-renderUsage();
-// 1분마다 갱신
-setInterval(renderUsage, 1000);
+let refreshUsagePromise = null;
+let deepResearchSyncRequested = false;
+
+function refreshUsage({ syncDeepResearch = false } = {}) {
+  if (syncDeepResearch) deepResearchSyncRequested = true;
+  if (refreshUsagePromise) return refreshUsagePromise;
+  refreshUsagePromise = (async () => {
+    do {
+      const shouldSyncDeepResearch = deepResearchSyncRequested;
+      deepResearchSyncRequested = false;
+      if (shouldSyncDeepResearch) await updateDeepResearchFromContent();
+      await renderUsage();
+    } while (deepResearchSyncRequested);
+  })().finally(() => {
+    refreshUsagePromise = null;
+  });
+  return refreshUsagePromise;
+}
+
+// 최초 렌더링 및 1분마다 페이지 유래 Deep Research 정보 동기화
+refreshUsage({ syncDeepResearch: true });
+setInterval(() => refreshUsage({ syncDeepResearch: true }), 60 * 1000);
 
 // 컨텍스트 모드 토글 저장/복원
 const contextModeToggle = document.getElementById('contextModeToggle');
@@ -597,11 +769,7 @@ if (toggleHoverToolbar) {
   toggleHoverToolbar.addEventListener('change', () => {
     const enabled = !!toggleHoverToolbar.checked;
     chrome.storage.local.set({ hoverToolbarEnabled: enabled }, () => {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const tab = tabs && tabs[0];
-        if (!tab) return;
-        chrome.tabs.sendMessage(tab.id, { type: 'setHoverToolbarEnabled', enabled });
-      });
+      notifyActiveChatTab({ type: 'setHoverToolbarEnabled', enabled });
     });
   });
 }
@@ -616,11 +784,7 @@ if (toggleTimestamps) {
     const enabled = !!toggleTimestamps.checked;
     await new Promise((r) => chrome.storage.local.set({ showTimestamps: enabled }, r));
     // Notify active tab content script to apply immediately
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs && tabs[0];
-      if (!tab) return;
-      chrome.tabs.sendMessage(tab.id, { type: 'applyTimestampSetting', enabled });
-    });
+    notifyActiveChatTab({ type: 'applyTimestampSetting', enabled });
   });
 }
 
@@ -634,10 +798,6 @@ if (timestampFormatSelect) {
   timestampFormatSelect.addEventListener('change', async () => {
     const format = timestampFormatSelect.value || 'standard';
     await new Promise((r) => chrome.storage.local.set({ timestampFormat: format }, r));
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs && tabs[0];
-      if (!tab) return;
-      chrome.tabs.sendMessage(tab.id, { type: 'applyTimestampFormat', format });
-    });
+    notifyActiveChatTab({ type: 'applyTimestampFormat', format });
   });
 }

@@ -60,10 +60,6 @@
 
   const HOVER_TOOLBAR_STYLE = `
 
-    /* 채팅창 패딩 무력화ㅡ툴바때문에 여백이 늘어나는거 방지 */
-    .pb-25 {
-      padding-bottom: 0 !important;
-      }
     #${HOVER_TOOLBAR_ID} {
       contain: layout;
       width: 100%;
@@ -714,9 +710,7 @@
           ? item.label.trim()
           : `프리셋 ${sanitized.length + 1}`;
       const prompt =
-        typeof item.prompt === 'string'
-          ? item.prompt.replace(/^\s*tone\s*:\s*/i, '').trim()
-          : '';
+        typeof item.prompt === 'string' ? item.prompt.replace(/^\s*tone\s*:\s*/i, '').trim() : '';
       sanitized.push({ id, label, prompt });
     });
     if (!sanitized.length) {
@@ -1013,7 +1007,15 @@
         return;
       }
       hoverToolbarState.lastBroadcastPayload = { ...payload };
-      window.postMessage({ type: 'GURUM_PROMPT_STATE', payload }, '*');
+      window.postMessage(
+        {
+          channel: 'chatgpt-gurum-tool',
+          version: 1,
+          type: 'GURUM_PROMPT_STATE',
+          payload,
+        },
+        '*',
+      );
     } catch (error) {
       console.warn('프롬프트 상태 브로드캐스트 실패:', error);
     }

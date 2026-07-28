@@ -72,17 +72,18 @@ module.exports = {
       patterns: [
         { from: 'manifest.json', to: 'manifest.json' },
         { from: 'background', to: 'background' },
+        { from: 'config/plan-limits.json', to: 'config/plan-limits.json' },
         { from: 'icons', to: 'icons' },
         { from: '_locales', to: '_locales' },
         { from: 'dist', to: 'dist' },
-        { from: 'thirdParty', to: 'thirdParty' },
+        { from: 'thirdParty/turndown.js', to: 'thirdParty/turndown.js' },
       ],
     }),
 
     // 정책 준수를 위해 난독화는 제거, Terser로 최소화만 수행
 
     // zip 산출물 (release.zip, release_<version>.zip)
-    new ZipPlugin({ filename: 'release.zip' }),
-    new ZipPlugin({ filename: `release_${pkg.version}.zip` }),
+    new ZipPlugin({ filename: 'release.zip', exclude: [/\.zip$/] }),
+    new ZipPlugin({ filename: `release_${pkg.version}.zip`, exclude: [/\.zip$/] }),
   ],
 };

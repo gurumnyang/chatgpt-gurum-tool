@@ -9,7 +9,12 @@ const CONFIG = {
   FALLBACK_RATIO: 0.25,
   // 토큰 측정 캐시 유효 시간 (ms)
   CACHE_TTL: 30000, // 30초
+  MAX_TEXT_LENGTH: 5_000_000,
+  MAX_MODEL_LENGTH: 128,
 };
+const PAGE_BRIDGE_CHANNEL = 'chatgpt-gurum-tool';
+const PAGE_BRIDGE_VERSION = 1;
+const REQUEST_ID_MAX_LENGTH = 128;
 
 // 토큰 측정 결과 캐싱
 const tokenCache = {
@@ -52,8 +57,51 @@ const tokenCache = {
   },
 };
 
-// 디바운스 처리용 타이머
-let debounceTimer = null;
+// 요청별 타이머로 동시 호출 간 응답 취소를 방지
+const pendingTimers = new Map();
+
+function createPageBridgeMessage(type, payload = {}) {
+  return {
+    channel: PAGE_BRIDGE_CHANNEL,
+    version: PAGE_BRIDGE_VERSION,
+    type,
+    ...payload,
+  };
+}
+
+function isPageBridgeMessage(data, type) {
+  return (
+    data !== null &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    data.channel === PAGE_BRIDGE_CHANNEL &&
+    data.version === PAGE_BRIDGE_VERSION &&
+    data.type === type
+  );
+}
+
+function isValidRequest(data) {
+  return (
+    typeof data.text === 'string' &&
+    data.text.length <= CONFIG.MAX_TEXT_LENGTH &&
+    typeof data.model === 'string' &&
+    data.model.length > 0 &&
+    data.model.length <= CONFIG.MAX_MODEL_LENGTH &&
+    typeof data.requestId === 'string' &&
+    data.requestId.length > 0 &&
+    data.requestId.length <= REQUEST_ID_MAX_LENGTH
+  );
+}
+
+function scheduleCalculation(requestId, callback) {
+  const existing = pendingTimers.get(requestId);
+  if (existing) clearTimeout(existing);
+  const timerId = setTimeout(() => {
+    pendingTimers.delete(requestId);
+    callback();
+  }, CONFIG.DEBOUNCE_DELAY);
+  pendingTimers.set(requestId, timerId);
+}
 
 /**
  * 토큰 수 계산 공통 함수
@@ -91,25 +139,21 @@ function getTokenCount(text, model) {
  * @param {string} requestId - 요청 식별자
  */
 function calculateTokenCount(text, model, requestId) {
-  // 디바운스 처리 (빠른 연속 호출 제한)
-  clearTimeout(debounceTimer);
-
-  debounceTimer = setTimeout(() => {
+  scheduleCalculation(requestId, () => {
     const tokens = getTokenCount(text, model);
     const success = window.tiktoken && typeof window.tiktoken.countTokens === 'function';
 
     window.postMessage(
-      {
-        type: 'CHATGPT_TOOL_TOKEN_COUNT_RESPONSE',
+      createPageBridgeMessage('CHATGPT_TOOL_TOKEN_COUNT_RESPONSE', {
         requestId: requestId,
         tokens: tokens,
         chars: text.length,
         success: success,
         error: !success ? 'tiktoken 함수를 찾을 수 없음' : null,
-      },
+      }),
       '*',
     );
-  }, CONFIG.DEBOUNCE_DELAY);
+  });
 }
 
 /**
@@ -117,25 +161,22 @@ function calculateTokenCount(text, model, requestId) {
  * @param {string} text - 토큰화할 텍스트
  * @param {string} model - OpenAI 모델명
  */
-function calculateContextSize(text, model) {
-  // 디바운스 처리 (빠른 연속 호출 제한)
-  clearTimeout(debounceTimer);
-
-  debounceTimer = setTimeout(() => {
+function calculateContextSize(text, model, requestId) {
+  scheduleCalculation(requestId, () => {
     const tokens = getTokenCount(text, model);
     const success = window.tiktoken && typeof window.tiktoken.countTokens === 'function';
 
     window.postMessage(
-      {
-        type: 'CHATGPT_TOOL_CONTEXT_TOKENS',
+      createPageBridgeMessage('CHATGPT_TOOL_CONTEXT_TOKENS', {
+        requestId: requestId,
         tokens: tokens,
         chars: text.length,
         success: success,
         error: !success ? 'tiktoken 함수를 찾을 수 없음' : null,
-      },
+      }),
       '*',
     );
-  }, CONFIG.DEBOUNCE_DELAY);
+  });
 }
 
 // 메시지 수신 리스너
@@ -146,20 +187,15 @@ window.addEventListener('message', function (event) {
   const data = event.data;
 
   // 토큰 계산 요청
-  if (data && data.type === 'CALCULATE_TOKEN_COUNT') {
+  if (isPageBridgeMessage(data, 'CALCULATE_TOKEN_COUNT') && isValidRequest(data)) {
     calculateTokenCount(data.text, data.model, data.requestId);
   }
 
   // 컨텍스트 크기 계산 요청
-  if (data && data.type === 'CALCULATE_CONTEXT_SIZE') {
-    calculateContextSize(data.text, data.model || 'gpt-4o');
+  if (isPageBridgeMessage(data, 'CALCULATE_CONTEXT_SIZE') && isValidRequest(data)) {
+    calculateContextSize(data.text, data.model, data.requestId);
   }
 });
 
 // 토큰 계산 라이브러리가 로드되었음을 알림
-window.postMessage(
-  {
-    type: 'TOKEN_CALCULATOR_LOADED',
-  },
-  '*',
-);
+window.postMessage(createPageBridgeMessage('TOKEN_CALCULATOR_LOADED'), '*');

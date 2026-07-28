@@ -67,15 +67,16 @@ module.exports = {
       patterns: [
         { from: 'manifest.firefox.json', to: 'manifest.json' },
         { from: 'background', to: 'background' },
+        { from: 'config/plan-limits.json', to: 'config/plan-limits.json' },
         { from: 'icons', to: 'icons' },
         { from: '_locales', to: '_locales' },
         { from: 'dist', to: 'dist' },
-        { from: 'thirdParty', to: 'thirdParty' },
+        { from: 'thirdParty/turndown.js', to: 'thirdParty/turndown.js' },
       ],
     }),
 
     // firefox zip 산출물
-    new ZipPlugin({ filename: 'firefox_release.zip' }),
-    new ZipPlugin({ filename: `firefox_release_${pkg.version}.zip` }),
+    new ZipPlugin({ filename: 'firefox_release.zip', exclude: [/\.zip$/] }),
+    new ZipPlugin({ filename: `firefox_release_${pkg.version}.zip`, exclude: [/\.zip$/] }),
   ],
 };

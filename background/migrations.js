@@ -17,25 +17,38 @@
       let limits = data.limits || {};
       const plan = data.currentPlan || currentPlanFallback || 'free';
       const planTmpl = data.planLimitsAll || getDefaultLimits();
+      const canonicalPlanLimits =
+        planTmpl &&
+        planTmpl[plan] &&
+        typeof planTmpl[plan] === 'object' &&
+        !Array.isArray(planTmpl[plan])
+          ? planTmpl[plan]
+          : null;
 
       if (counts['gpt-4-1-mini']) delete counts['gpt-4-1-mini'];
-      if (limits['gpt-4-1-mini']) delete limits['gpt-4-1-mini'];
 
-      if ((plan === 'plus' || plan === 'team') && limits['gpt-4-5']) {
-        delete limits['gpt-4-5'];
-      }
+      if (canonicalPlanLimits) {
+        // 검증된 원격/패키지 설정이 있으면 과거 정책을 다시 주입하지 않는다.
+        limits = { ...canonicalPlanLimits };
+      } else {
+        if (limits['gpt-4-1-mini']) delete limits['gpt-4-1-mini'];
 
-      if (plan === 'team') {
-        limits = { ...(planTmpl.team || {}) };
-      } else if (plan === 'plus') {
-        limits['gpt-5'] = { type: 'threeHour', value: 160 };
-        limits['gpt-5-thinking'] = { type: 'weekly', value: 3000 };
-      } else if (plan === 'free') {
-        if (counts['gpt-4o']) delete counts['gpt-4o'];
-        if (counts['o4-mini']) delete counts['o4-mini'];
-        if (limits['gpt-4o']) delete limits['gpt-4o'];
-        if (limits['o4-mini']) delete limits['o4-mini'];
-        limits['gpt-5'] = { type: 'fiveHour', value: 10 };
+        if ((plan === 'plus' || plan === 'team') && limits['gpt-4-5']) {
+          delete limits['gpt-4-5'];
+        }
+
+        if (plan === 'team') {
+          limits = { ...(planTmpl.team || {}) };
+        } else if (plan === 'plus') {
+          limits['gpt-5'] = { type: 'threeHour', value: 160 };
+          limits['gpt-5-thinking'] = { type: 'weekly', value: 3000 };
+        } else if (plan === 'free') {
+          if (counts['gpt-4o']) delete counts['gpt-4o'];
+          if (counts['o4-mini']) delete counts['o4-mini'];
+          if (limits['gpt-4o']) delete limits['gpt-4o'];
+          if (limits['o4-mini']) delete limits['o4-mini'];
+          limits['gpt-5'] = { type: 'fiveHour', value: 10 };
+        }
       }
 
       await chrome.storage.local.set({ usageCounts: counts, limits });

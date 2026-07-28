@@ -54,6 +54,8 @@ async function countTokensAsync(text, model = 'gpt-4o') {
 // 기존 동기 API 호환을 위한 래퍼(최초 호출 시 근사치 반환 가능)
 function countTokens(text, model = 'gpt-4o') {
   if (!text) return 0;
+  // o200k 단일 인코더를 사용하지만 기존 호출부의 model 인자는 API 호환을 위해 유지한다.
+  void model;
   const api = o200kTokenizer;
   try {
     return api.countTokens(text);

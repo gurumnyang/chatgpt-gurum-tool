@@ -1,5 +1,9 @@
 // fetch-hook.js — conversation API 가로채기 및 Deep Research/타임스탬프 수집
 (() => {
+  const PAGE_BRIDGE_CHANNEL = 'chatgpt-gurum-tool';
+  const PAGE_BRIDGE_VERSION = 1;
+  const MAX_PROMPT_SEGMENT_LENGTH = 100_000;
+  const MAX_TIMESTAMP_MESSAGES = 50_000;
   const originalFetch = window.fetch;
   const convDetailRegex = new RegExp(
     '^https://(chat\\.openai|chatgpt)\\.com/backend-api/(?:[a-z-]+/)?conversation/[0-9a-fA-F-]+$',
@@ -12,20 +16,73 @@
     includeTimestamp: false,
   };
 
+  function createPageBridgeMessage(type, payload = {}) {
+    return {
+      channel: PAGE_BRIDGE_CHANNEL,
+      version: PAGE_BRIDGE_VERSION,
+      type,
+      ...payload,
+    };
+  }
+
+  function isPageBridgeMessage(data, type) {
+    return (
+      data !== null &&
+      typeof data === 'object' &&
+      !Array.isArray(data) &&
+      data.channel === PAGE_BRIDGE_CHANNEL &&
+      data.version === PAGE_BRIDGE_VERSION &&
+      data.type === type
+    );
+  }
+
+  function sanitizePromptSegment(value) {
+    if (typeof value !== 'string' || value.length > MAX_PROMPT_SEGMENT_LENGTH) return null;
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
+  function sanitizeDeepResearchInfo(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    if (value.feature_name !== 'deep_research') return null;
+
+    const remaining = Number(value.remaining);
+    if (!Number.isSafeInteger(remaining) || remaining < 0 || remaining > 100_000) return null;
+
+    const rawReset =
+      typeof value.reset_after === 'string' && value.reset_after.length <= 128
+        ? value.reset_after
+        : typeof value.reset_after === 'number' && Number.isFinite(value.reset_after)
+          ? value.reset_after
+          : null;
+    if (rawReset === null) return null;
+    const normalizedReset =
+      typeof rawReset === 'number' && rawReset < 1e11 ? rawReset * 1000 : rawReset;
+    const resetMs = new Date(normalizedReset).getTime();
+    if (
+      !Number.isFinite(resetMs) ||
+      resetMs < Date.UTC(2020, 0, 1) ||
+      resetMs > Date.UTC(2100, 0, 1)
+    ) {
+      return null;
+    }
+
+    return {
+      feature_name: 'deep_research',
+      remaining,
+      reset_after: new Date(resetMs).toISOString(),
+    };
+  }
+
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.type !== 'GURUM_PROMPT_STATE') return;
+    if (!isPageBridgeMessage(data, 'GURUM_PROMPT_STATE')) return;
     const payload = data.payload || {};
-    promptState.toneDirective =
-      typeof payload.toneDirective === 'string' && payload.toneDirective.trim()
-        ? payload.toneDirective
-        : null;
-    promptState.promptText =
-      typeof payload.promptText === 'string' && payload.promptText.trim()
-        ? payload.promptText
-        : null;
-    promptState.includeTimestamp = !!payload.includeTimestamp;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+    promptState.toneDirective = sanitizePromptSegment(payload.toneDirective);
+    promptState.promptText = sanitizePromptSegment(payload.promptText);
+    promptState.includeTimestamp = payload.includeTimestamp === true;
   });
 
   function hasPromptSegments() {
@@ -224,8 +281,12 @@
           .then((data) => {
             if (data && Array.isArray(data.limits_progress)) {
               const deep = data.limits_progress.find((x) => x.feature_name === 'deep_research');
-              if (deep) {
-                window.postMessage({ type: 'CHATGPT_TOOL_DEEP_RESEARCH_INFO', info: deep }, '*');
+              const info = sanitizeDeepResearchInfo(deep);
+              if (info) {
+                window.postMessage(
+                  createPageBridgeMessage('CHATGPT_TOOL_DEEP_RESEARCH_INFO', { info }),
+                  '*',
+                );
               }
             }
           })
@@ -250,11 +311,26 @@
                 const id = m.id;
                 const role = m.author && m.author.role;
                 const ct = Number(m.create_time);
-                if (!id || !ct) continue;
+                if (
+                  typeof id !== 'string' ||
+                  id.length === 0 ||
+                  id.length > 256 ||
+                  (typeof role !== 'string' && role != null) ||
+                  (typeof role === 'string' && role.length > 32) ||
+                  !Number.isFinite(ct) ||
+                  ct < 946684800 ||
+                  ct > Date.now() / 1000 + 86400
+                ) {
+                  continue;
+                }
                 msgs.push({ id, role, create_time: ct });
+                if (msgs.length >= MAX_TIMESTAMP_MESSAGES) break;
               }
               if (msgs.length) {
-                window.postMessage({ type: 'GURUM_TS_CONV_DATA', messages: msgs }, '*');
+                window.postMessage(
+                  createPageBridgeMessage('GURUM_TS_CONV_DATA', { messages: msgs }),
+                  '*',
+                );
               }
             } catch (e) {
               /* ignore */

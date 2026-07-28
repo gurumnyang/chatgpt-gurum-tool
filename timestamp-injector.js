@@ -3,6 +3,9 @@
 // Works together with fetch-hook.js which posts GURUM_TS_CONV_DATA with {id, role, create_time}
 
 (() => {
+  const PAGE_BRIDGE_CHANNEL = 'chatgpt-gurum-tool';
+  const PAGE_BRIDGE_VERSION = 1;
+  const MAX_TIMESTAMP_MESSAGES = 50_000;
   const STATE = {
     enabled: false,
     tsMap: new Map(), // messageId -> ms timestamp
@@ -17,8 +20,10 @@
 
   function toMs(t) {
     const n = Number(t);
-    if (!isFinite(n)) return Date.now();
-    return n < 1e10 ? Math.round(n * 1000) : Math.round(n);
+    if (!Number.isFinite(n)) return null;
+    const ms = n < 1e11 ? Math.round(n * 1000) : Math.round(n);
+    if (ms < Date.UTC(2000, 0, 1) || ms > Date.now() + 86400000) return null;
+    return ms;
   }
 
   function formatStandard(ts) {
@@ -180,6 +185,7 @@
       STATE.observer.disconnect();
       STATE.observer = null;
     }
+    STATE._startScheduled = false;
   }
 
   function scheduleObserverStart() {
@@ -203,19 +209,16 @@
   }
 
   function setTimestamp(id, value) {
-    STATE.tsMap.set(id, toMs(value));
+    if (typeof id !== 'string' || id.length === 0 || id.length > 256) return;
+    const timestamp = toMs(value);
+    if (timestamp === null) return;
+    STATE.tsMap.set(id, timestamp);
   }
 
   function getTimestampForMessage(div) {
     const id = div.getAttribute('data-message-id');
     if (!id) return null;
-    if (STATE.tsMap.has(id)) return STATE.tsMap.get(id);
-    // fallback: create on first sight
-    const existing = div.getAttribute('data-gurum-ts');
-    if (existing) return Number(existing);
-    const now = Date.now();
-    div.setAttribute('data-gurum-ts', String(now));
-    return now;
+    return STATE.tsMap.has(id) ? STATE.tsMap.get(id) : null;
   }
 
   function renderAll() {
@@ -238,12 +241,19 @@
       const cls = 'chatgpt-time-container';
       const existed = root.querySelector(`.${cls}`);
       const ts = getTimestampForMessage(messageDiv);
-      const html = `<span class="${cls} ${role}">${formatTimestamp(ts)}</span>`;
+      if (ts === null) {
+        if (existed) existed.remove();
+        return;
+      }
+      const safeRole = role === 'user' || role === 'assistant' ? role : '';
+      const label = existed || document.createElement('span');
+      label.className = safeRole ? `${cls} ${safeRole}` : cls;
+      label.textContent = formatTimestamp(ts);
       if (existed) {
-        existed.outerHTML = html; // 기존 라벨 교체
+        return;
       } else {
         // 메시지 엘리먼트의 첫 자식으로 삽입
-        root.insertAdjacentHTML('afterbegin', html);
+        root.prepend(label);
       }
     } catch (_) {}
   }
@@ -253,15 +263,28 @@
     STATE.inited = true;
     // Listen page messages
     window.addEventListener('message', (ev) => {
+      if (ev.source !== window) return;
       const d = ev.data;
-      if (!d || typeof d !== 'object') return;
+      if (
+        !d ||
+        typeof d !== 'object' ||
+        Array.isArray(d) ||
+        d.channel !== PAGE_BRIDGE_CHANNEL ||
+        d.version !== PAGE_BRIDGE_VERSION
+      ) {
+        return;
+      }
       if (d.type === 'GURUM_TS_ENABLE') {
         setEnabled(true);
       } else if (d.type === 'GURUM_TS_DISABLE') {
         setEnabled(false);
       } else if (d.type === 'GURUM_TS_SET_FORMAT') {
         setFormatStyle(d.format);
-      } else if (d.type === 'GURUM_TS_CONV_DATA' && Array.isArray(d.messages)) {
+      } else if (
+        d.type === 'GURUM_TS_CONV_DATA' &&
+        Array.isArray(d.messages) &&
+        d.messages.length <= MAX_TIMESTAMP_MESSAGES
+      ) {
         for (const m of d.messages) {
           if (!m || !m.id) continue;
           setTimestamp(m.id, m.create_time);

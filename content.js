@@ -3,6 +3,11 @@ console.log('Content script 로드됨. DOM 조작 및 메시지 처리 준비 �
 
 const SCROLL_CONTROLS_ID = 'gurum-scroll-controls';
 const SCROLL_CONTROLS_STYLE_ID = 'gurum-scroll-controls-style';
+const PAGE_BRIDGE_CHANNEL = 'chatgpt-gurum-tool';
+const PAGE_BRIDGE_VERSION = 1;
+const PAGE_BRIDGE_REQUEST_TIMEOUT = 2000;
+const PAGE_BRIDGE_MAX_TEXT_LENGTH = 5_000_000;
+const PAGE_BRIDGE_MAX_TOKEN_COUNT = 1_000_000_000;
 const hoverToolbarModule = window.GurumHoverToolbar || {};
 const initializeHoverToolbar =
   typeof hoverToolbarModule.initializeHoverToolbar === 'function'
@@ -20,6 +25,82 @@ const setHoverToolbarEnabled =
   typeof hoverToolbarModule.setHoverToolbarEnabled === 'function'
     ? hoverToolbarModule.setHoverToolbarEnabled
     : () => {};
+
+function createPageBridgeMessage(type, payload = {}) {
+  return {
+    channel: PAGE_BRIDGE_CHANNEL,
+    version: PAGE_BRIDGE_VERSION,
+    type,
+    ...payload,
+  };
+}
+
+// 채널/버전은 메시지 충돌 방지용 계약이며, main world에서 위조 불가능한 보안 경계는 아니다.
+function isPageBridgeMessage(data, type) {
+  return (
+    data !== null &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    data.channel === PAGE_BRIDGE_CHANNEL &&
+    data.version === PAGE_BRIDGE_VERSION &&
+    data.type === type
+  );
+}
+
+function createPageBridgeRequestId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function isValidRequestId(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128;
+}
+
+function isValidTokenResponse(data, type, requestId) {
+  return (
+    isPageBridgeMessage(data, type) &&
+    isValidRequestId(data.requestId) &&
+    data.requestId === requestId &&
+    Number.isSafeInteger(data.tokens) &&
+    data.tokens >= 0 &&
+    data.tokens <= PAGE_BRIDGE_MAX_TOKEN_COUNT &&
+    Number.isSafeInteger(data.chars) &&
+    data.chars >= 0 &&
+    data.chars <= PAGE_BRIDGE_MAX_TEXT_LENGTH &&
+    typeof data.success === 'boolean'
+  );
+}
+
+function sanitizeDeepResearchInfo(info) {
+  if (!info || typeof info !== 'object' || Array.isArray(info)) return null;
+  if (info.feature_name !== 'deep_research') return null;
+
+  const remaining = Number(info.remaining);
+  if (!Number.isSafeInteger(remaining) || remaining < 0 || remaining > 100_000) return null;
+
+  const resetAfter =
+    typeof info.reset_after === 'string' && info.reset_after.length <= 128
+      ? info.reset_after
+      : typeof info.reset_after === 'number' && Number.isFinite(info.reset_after)
+        ? info.reset_after
+        : null;
+  if (resetAfter === null) return null;
+
+  let resetMs =
+    typeof resetAfter === 'number' && resetAfter < 1e11 ? resetAfter * 1000 : resetAfter;
+  resetMs = new Date(resetMs).getTime();
+  const minResetMs = Date.UTC(2020, 0, 1);
+  const maxResetMs = Date.UTC(2100, 0, 1);
+  if (!Number.isFinite(resetMs) || resetMs < minResetMs || resetMs > maxResetMs) return null;
+
+  return {
+    feature_name: 'deep_research',
+    remaining,
+    reset_after: new Date(resetMs).toISOString(),
+  };
+}
 
 function onDocumentReady(callback) {
   if (typeof callback !== 'function') return;
@@ -210,7 +291,7 @@ function validateTimestampFormat(value) {
 function dispatchTimestampFormat() {
   const format = currentTimestampFormat;
   const send = () => {
-    window.postMessage({ type: 'GURUM_TS_SET_FORMAT', format }, '*');
+    window.postMessage(createPageBridgeMessage('GURUM_TS_SET_FORMAT', { format }), '*');
   };
   if (tsLoaded) {
     send();
@@ -271,12 +352,12 @@ async function applyTimestampSetting(enabled) {
       injectTimestampInjector(() => {
         // 실제 인젝터 로드가 확인된 시점에서만 ENABLE 전송
         if (desiredTsEnabled) {
-          window.postMessage({ type: 'GURUM_TS_ENABLE' }, '*');
+          window.postMessage(createPageBridgeMessage('GURUM_TS_ENABLE'), '*');
         }
       });
     } else {
       // 주입되어 있지 않아도 비활성 메시지는 안전
-      window.postMessage({ type: 'GURUM_TS_DISABLE' }, '*');
+      window.postMessage(createPageBridgeMessage('GURUM_TS_DISABLE'), '*');
     }
   } catch (e) {
     console.warn('타임스탬프 설정 적용 실패:', e);
@@ -293,9 +374,9 @@ function checkExtensionContext() {
     if (chrome.runtime.id) {
       if (!isExtensionContextValid) {
         isExtensionContextValid = true;
-        // 여기서 필요한 초기화 작업 수행
-        observeConversation();
       }
+      // SPA 전환으로 main 노드가 교체된 경우 observer 대상을 갱신한다.
+      observeConversation();
       return true;
     }
   } catch (error) {
@@ -353,16 +434,18 @@ try {
 
 // window.postMessage로 전달된 데이터를 background로 전달
 window.addEventListener('message', (event) => {
-  // 보안 검사: 메시지 출처가 현재 창인지 확인
+  // iframe 등 다른 window의 메시지를 제외한다.
   if (event.source !== window) return;
 
   const data = event.data;
   // Deep Research 정보 처리 (fetch 후킹에서 전송)
-  if (data && data.type === 'CHATGPT_TOOL_DEEP_RESEARCH_INFO') {
-    console.log('🔍 Deep Research 정보 받음, background로 전달:', data.info);
+  if (isPageBridgeMessage(data, 'CHATGPT_TOOL_DEEP_RESEARCH_INFO')) {
+    const info = sanitizeDeepResearchInfo(data.info);
+    if (!info) return;
+    console.log('🔍 Deep Research 정보 받음, background로 전달:', info);
     safeSendMessage({
       type: 'deep_research_info',
-      info: data.info,
+      info,
     });
   }
   // 참고: 토큰 계산 결과는 이제 calculateContextSize 내에서 직접 처리됨
@@ -378,13 +461,17 @@ onDocumentReady(() => {
 // 대화 영역 변경사항 관찰 (새 메시지 등을 감지)
 // debounce를 위한 변수
 let observationTimer = null;
+let conversationObserver = null;
+let conversationObserverTarget = null;
 const OBSERVATION_DEBOUNCE_TIME = 1000; // 1초 디바운스
 
 function observeConversation() {
   const targetNode = document.querySelector('main') || document.body;
   if (!targetNode) return;
+  if (conversationObserver && conversationObserverTarget === targetNode) return;
+  if (conversationObserver) conversationObserver.disconnect();
 
-  const observer = new MutationObserver((mutations) => {
+  conversationObserver = new MutationObserver((mutations) => {
     // 변경 발생 시 디바운스 처리
     clearTimeout(observationTimer);
 
@@ -422,12 +509,25 @@ function observeConversation() {
     }, OBSERVATION_DEBOUNCE_TIME);
   });
 
-  observer.observe(targetNode, {
+  conversationObserver.observe(targetNode, {
     childList: true,
     subtree: true,
     characterData: true,
   });
+  conversationObserverTarget = targetNode;
 }
+
+window.addEventListener(
+  'pagehide',
+  () => {
+    if (conversationObserver) conversationObserver.disconnect();
+    conversationObserver = null;
+    conversationObserverTarget = null;
+    clearTimeout(observationTimer);
+    observationTimer = null;
+  },
+  { once: true },
+);
 
 // 메시지 리스너 - 팝업/백그라운드와 통신
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -476,20 +576,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
 
       // 고유한 메시지 ID 생성 (여러 요청 구분용)
-      const requestId = 'req_' + Date.now();
+      const requestId = createPageBridgeRequestId();
+      let settled = false;
+
+      const cleanup = () => {
+        window.removeEventListener('message', responseListener);
+        clearTimeout(timeoutId);
+      };
 
       // 한 번만 실행되는 응답 리스너
       const responseListener = function (event) {
         if (event.source !== window) return;
         const data = event.data;
 
-        if (
-          data &&
-          data.type === 'CHATGPT_TOOL_TOKEN_COUNT_RESPONSE' &&
-          data.requestId === requestId
-        ) {
-          // 리스너 제거 (메모리 누수 방지)
-          window.removeEventListener('message', responseListener);
+        if (isValidTokenResponse(data, 'CHATGPT_TOOL_TOKEN_COUNT_RESPONSE', requestId)) {
+          settled = true;
+          cleanup();
 
           // 결과 반환
           sendResponse({
@@ -499,18 +601,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
         }
       };
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        sendResponse({ error: '토큰 계산 응답 시간이 초과되었습니다.' });
+      }, PAGE_BRIDGE_REQUEST_TIMEOUT);
 
       // 응답 리스너 등록
       window.addEventListener('message', responseListener);
 
       // 토큰 계산 요청 메시지 전송
       window.postMessage(
-        {
-          type: 'CALCULATE_TOKEN_COUNT',
+        createPageBridgeMessage('CALCULATE_TOKEN_COUNT', {
           text: text,
           model: model,
           requestId: requestId,
-        },
+        }),
         '*',
       );
 
@@ -553,12 +660,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // 비동기 응답을 위해 true 반환
       }
       sendResponse({ remaining: null });
+      return false;
     } catch (error) {
       console.error('🚨 Deep Research 확인 중 오류:', error);
       sendResponse({ error: error.message });
+      return false;
     }
   }
-  return true;
+  return false;
 });
 
 // 스토리지 변경 감지로 타임스탬프 설정 동기화
@@ -716,8 +825,10 @@ function calculateContextSize() {
 
       // 문자 길이 계산
       const chars = text.length;
+      const requestId = createPageBridgeRequestId();
       // 응답 대기 타임아웃 (1.5초 후 기본값 반환)
       const timeoutId = setTimeout(() => {
+        window.removeEventListener('message', responseListener);
         // 토큰 계산 타임아웃, 근사치 사용
         const contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
         const result = {
@@ -741,7 +852,7 @@ function calculateContextSize() {
         if (event.source !== window) return;
         const data = event.data;
 
-        if (data && data.type === 'CHATGPT_TOOL_CONTEXT_TOKENS') {
+        if (isValidTokenResponse(data, 'CHATGPT_TOOL_CONTEXT_TOKENS', requestId)) {
           // 리스너 제거 및 타임아웃 취소
           window.removeEventListener('message', responseListener);
           clearTimeout(timeoutId);
@@ -770,12 +881,12 @@ function calculateContextSize() {
 
       // 웹페이지에 메시지 전송하여 토큰 계산 요청
       window.postMessage(
-        {
-          type: 'CALCULATE_CONTEXT_SIZE',
+        createPageBridgeMessage('CALCULATE_CONTEXT_SIZE', {
           text: text,
           model: 'gpt-4o',
           chars: chars,
-        },
+          requestId,
+        }),
         '*',
       );
     });

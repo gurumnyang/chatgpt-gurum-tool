@@ -23,7 +23,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"],
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
       "js": ["hover-toolbar.js", "content.js"],
       "run_at": "document_start"
     }
@@ -34,8 +34,7 @@
         "fetch-hook.js",
         "timestamp-injector.js",
         "dist/tiktoken.bundle.js",
-        "token-calculator.js",
-        "thirdParty/popper.min.js"
+        "token-calculator.js"
       ],
       "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"]
     }

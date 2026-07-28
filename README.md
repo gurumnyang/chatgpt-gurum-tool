@@ -45,23 +45,22 @@ npm run build
 ```
 
 - Generates / updates `dist/tiktoken.bundle.js`.
-- The resulting file is copied to `thirdParty/` and `build-firefox/` and must be up to date before packaging.
+- Release packaging copies `dist/` into the target build directory. Only the separate `update-tiktoken` maintenance command copies this bundle into `thirdParty/`.
 
 ### Firefox release reproduction (`build-firefox`)
 
 ```bash
 npm install
-npm run build
 npm run build:firefox
 ```
 
-- `build:firefox` uses `webpack.release.firefox.js` to wipe `build-firefox/` and rebuild the Firefox-specific bundle.
+- `build:firefox` first generates the shared `dist/` bundle, then uses `webpack.release.firefox.js` to wipe `build-firefox/` and rebuild the Firefox-specific package.
 - Outputs:
   - Minified `.js` files, optimized `popup.html`, and the Firefox manifest rewritten as `build-firefox/manifest.json`.
   - Two archives: `build-firefox/firefox_release.zip` and `build-firefox/firefox_release_<package.json version>.zip`. These match the packages uploaded to Mozilla Add-ons.
 - Optional verification: inspect archive contents with `unzip -l build-firefox/firefox_release.zip` or compare checksums via `shasum -a 256 build-firefox/firefox_release.zip`.
 
-> Chrome release packages are created with `npm run build:release` and also require `dist/` to be freshly built.
+> Chrome release packages are created with `npm run build:release`; that script also rebuilds the shared `dist/` bundle first.
 
 ---
 
@@ -80,23 +79,22 @@ npm run build
 ```
 
 - 위 명령은 `dist/tiktoken.bundle.js`를 새로 생성하거나 갱신합니다.
-- 생성된 파일은 `thirdParty/`와 `build-firefox/`로 복사되어 각 스토어 제출 번들에 포함됩니다.
+- 릴리스 패키징 과정에서는 `dist/`가 대상 빌드 폴더로 복사됩니다. 이 번들을 `thirdParty/`로 복사하는 작업은 별도 유지보수 명령인 `update-tiktoken`에서만 수행합니다.
 
 ### Firefox 패키지 재현 (build-firefox)
 
 ```bash
 npm install
-npm run build
 npm run build:firefox
 ```
 
-- `build:firefox`는 `webpack.release.firefox.js` 설정을 사용해 `build-firefox/` 폴더를 깨끗이 비운 뒤, Firefox용 확장 번들을 재생성합니다.
+- `build:firefox`는 먼저 공용 `dist/` 번들을 생성한 다음, `webpack.release.firefox.js` 설정으로 `build-firefox/` 폴더를 깨끗이 비우고 Firefox용 확장 패키지를 재생성합니다.
 - 결과물:
   - `build-firefox/`에 최적화된 `.js`와 `popup.html`, 변환된 `manifest.json`이 생성됩니다.
   - 동일 폴더에 `firefox_release.zip`, `firefox_release_<package.json version>.zip` 두 개의 압축 파일이 만들어집니다. 이들은 Mozilla Add-ons에 제출한 빌드와 동일한 파일입니다.
 - 필요 시 `unzip -l build-firefox/firefox_release.zip`과 같이 압축 내용을 확인하거나, 제출 전 체크섬 비교(`shasum -a 256 build-firefox/firefox_release.zip`)로 파일 동일성을 검증할 수 있습니다.
 
-> Chrome 패키지는 `npm run build:release` 명령으로 생성할 수 있으며, Firefox와 동일하게 `dist/`가 최신 상태여야 합니다.
+> Chrome 패키지는 `npm run build:release` 명령으로 생성할 수 있으며, 이 스크립트도 공용 `dist/` 번들을 먼저 다시 빌드합니다.
 
 ## 라이선스
 

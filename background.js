@@ -11,7 +11,11 @@ self.importScripts(
 const {
   defaultLimits,
   refreshPlanLimitsFromRemote,
+  getPlanLimitsTemplate,
   getDeepResearchTotalFor,
+  isValidDeepResearchCount,
+  isAllowedPlan,
+  parseDeepResearchResetTimestamp,
   getNextMonthlyResetTimestamp,
   updateModelUsageWithWorkspace,
   updateBadge,
@@ -23,6 +27,13 @@ const {
 } = self.__GURUM_BG__;
 
 let currentPlan = 'free';
+
+async function getPersistedCurrentPlan() {
+  const stored = await chrome.storage.local.get('currentPlan');
+  const plan = isAllowedPlan(stored.currentPlan) ? stored.currentPlan : 'free';
+  currentPlan = plan;
+  return plan;
+}
 
 chrome.runtime.onInstalled.addListener((details) => {
   (async () => {
@@ -45,7 +56,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       const installReasonIsInstall = reason === installedReasonEnum.INSTALL;
       const shouldInitializeDefaults = installReasonIsInstall || needPrefsInit;
 
-      if (prefs.currentPlan) {
+      if (isAllowedPlan(prefs.currentPlan)) {
         currentPlan = prefs.currentPlan;
       }
 
@@ -90,15 +101,16 @@ chrome.runtime.onInstalled.addListener((details) => {
       await bgLoadLocaleDict(userLocale);
 
       if (isFreshInstall) {
+        const planLimitsTemplate = await getPlanLimitsTemplate();
         const drTotal = await getDeepResearchTotalFor(currentPlan);
         const initialDr = {
           remaining: '-',
-          total: drTotal || '-',
+          total: drTotal,
           resetAt: getNextMonthlyResetTimestamp(),
         };
         await chrome.storage.local.set({
           usageCounts: {},
-          limits: defaultLimits[currentPlan],
+          limits: planLimitsTemplate[currentPlan] || defaultLimits[currentPlan],
           currentPlan: currentPlan,
           deepResearch: initialDr,
         });
@@ -123,10 +135,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 chrome.runtime.onStartup.addListener(() => {
   (async () => {
-    const stored = await chrome.storage.local.get('currentPlan');
-    if (stored?.currentPlan) {
-      currentPlan = stored.currentPlan;
-    }
+    const plan = await getPersistedCurrentPlan();
 
     const { userLocale } = await chrome.storage.local.get('userLocale');
     await bgLoadLocaleDict(userLocale);
@@ -134,10 +143,10 @@ chrome.runtime.onStartup.addListener(() => {
     chrome.alarms.create('refreshPlanLimits', { periodInMinutes: 6 * 60 });
 
     try {
-      await refreshPlanLimitsFromRemote(currentPlan);
-      await migrateModelAliases(currentPlan);
+      await refreshPlanLimitsFromRemote(plan);
+      await migrateModelAliases(plan);
       await migrateO4MiniHigh();
-      await migratePolicy2025_08(currentPlan);
+      await migratePolicy2025_08(plan);
     } catch (error) {
       console.warn('시작 시 동기화 실패:', error);
     }
@@ -149,6 +158,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
     const v = changes.userLocale.newValue;
     bgLoadLocaleDict(v);
   }
+  if (area === 'local' && changes.currentPlan && isAllowedPlan(changes.currentPlan.newValue)) {
+    currentPlan = changes.currentPlan.newValue;
+  }
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -158,11 +170,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       updateBadge(data.usageCounts || {});
     });
   } else if (alarm.name === 'refreshPlanLimits') {
-    refreshPlanLimitsFromRemote(currentPlan)
-      .catch(() => {})
-      .finally(() => {
-        migrateModelAliases(currentPlan).catch(() => {});
-      });
+    (async () => {
+      const plan = await getPersistedCurrentPlan();
+      await refreshPlanLimitsFromRemote(plan);
+      await migrateModelAliases(plan);
+    })().catch(() => {});
   }
 });
 
@@ -172,73 +184,118 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     try {
       const { remaining, reset_after } = message.info;
+      const resetAt = parseDeepResearchResetTimestamp(reset_after);
+      if (!isValidDeepResearchCount(remaining) || resetAt === null) {
+        console.warn('유효하지 않은 Deep Research 정보 무시:', message.info);
+        sendResponse({ status: 'invalid' });
+        return false;
+      }
 
-      chrome.storage.local.get(['deepResearch', 'currentPlan'], (data) => {
+      (async () => {
+        const data = await chrome.storage.local.get([
+          'deepResearch',
+          'currentPlan',
+          'planLimitsAll',
+        ]);
         const dr = data.deepResearch || {};
-        const plan = data.currentPlan || currentPlan;
+        const plan = isAllowedPlan(data.currentPlan) ? data.currentPlan : 'free';
 
         dr.remaining = remaining;
-        dr.resetAt = new Date(reset_after).getTime();
+        dr.resetAt = resetAt;
 
-        const tmpl = data.planLimitsAll || defaultLimits;
+        const tmpl = data.planLimitsAll || (await getPlanLimitsTemplate());
         const def = tmpl[plan] && tmpl[plan]['deep-research'];
         dr.total = def && def.value != null ? def.value : dr.total || '?';
 
-        chrome.storage.local.set({ deepResearch: dr });
+        await chrome.storage.local.set({ deepResearch: dr });
         console.log('💾 Deep Research 정보 저장 완료 (fetch hook):', dr);
 
         if (remaining <= 10) {
           chrome.action.setBadgeText({ text: `DR:${remaining}` });
           chrome.action.setBadgeBackgroundColor({ color: remaining <= 5 ? '#FF0000' : '#FFA500' });
         }
+        sendResponse({ status: 'ok' });
+      })().catch((error) => {
+        console.warn('Deep Research 정보 저장 실패:', error);
+        sendResponse({ status: 'error' });
       });
+      return true;
     } catch (error) {
       console.error('❌ Deep Research 정보 처리 실패:', error);
+      sendResponse({ status: 'error' });
+      return false;
     }
   }
 
   if (message.type === 'deepResearchRemaining') {
-    chrome.storage.local.get(['deepResearch', 'currentPlan'], (data) => {
-      const dr = data.deepResearch || {};
-      dr.remaining = message.remaining;
-      const plan = data.currentPlan || currentPlan;
-      const tmpl = data.planLimitsAll || defaultLimits;
-      const def = tmpl[plan] && tmpl[plan]['deep-research'];
-      dr.total = def && def.value != null ? def.value : dr.total;
-      if (message.resetTime != null) {
-        const rt = message.resetTime;
-        dr.resetAt = new Date(rt).getTime();
-      }
-      chrome.storage.local.set({ deepResearch: dr }, () => {
+    if (!isValidDeepResearchCount(message.remaining)) {
+      sendResponse({ status: 'invalid' });
+      return false;
+    }
+    const resetAt =
+      message.resetTime == null ? null : parseDeepResearchResetTimestamp(message.resetTime);
+    if (message.resetTime != null && resetAt === null) {
+      sendResponse({ status: 'invalid' });
+      return false;
+    }
+
+    (async () => {
+      try {
+        const data = await chrome.storage.local.get([
+          'deepResearch',
+          'currentPlan',
+          'planLimitsAll',
+        ]);
+        const dr = data.deepResearch || {};
+        dr.remaining = message.remaining;
+        const plan = isAllowedPlan(data.currentPlan) ? data.currentPlan : 'free';
+        const tmpl = data.planLimitsAll || (await getPlanLimitsTemplate());
+        const def = tmpl[plan] && tmpl[plan]['deep-research'];
+        dr.total = def && def.value != null ? def.value : dr.total;
+        if (resetAt !== null) dr.resetAt = resetAt;
+        await chrome.storage.local.set({ deepResearch: dr });
         sendResponse({ status: 'ok' });
-      });
-    });
+      } catch (error) {
+        console.warn('Deep Research 잔여량 저장 실패:', error);
+        sendResponse({ status: 'error' });
+      }
+    })();
     return true;
   }
 
   if (message.type === 'changePlan' && message.plan) {
+    if (!isAllowedPlan(message.plan)) {
+      sendResponse({ status: 'invalid' });
+      return false;
+    }
     currentPlan = message.plan;
-    chrome.storage.local.get(['planLimitsAll', 'deepResearch'], (data2) => {
-      const tmpl = data2.planLimitsAll || defaultLimits;
-      const newLimits = tmpl[currentPlan] || {};
-      const oldDr = data2.deepResearch || {};
-      const dr = {
-        remaining: oldDr.remaining ?? '-',
-        total: newLimits['deep-research']?.value ?? '-',
-        resetAt: oldDr.resetAt ?? getNextMonthlyResetTimestamp(),
-      };
-      chrome.storage.local.set({ limits: newLimits, currentPlan, deepResearch: dr }, () => {
+    (async () => {
+      try {
+        const data2 = await chrome.storage.local.get(['planLimitsAll', 'deepResearch']);
+        const tmpl = data2.planLimitsAll || (await getPlanLimitsTemplate());
+        const newLimits = tmpl[currentPlan] || {};
+        const oldDr = data2.deepResearch || {};
+        const dr = {
+          remaining: oldDr.remaining ?? '-',
+          total: newLimits['deep-research']?.value ?? '-',
+          resetAt: oldDr.resetAt ?? getNextMonthlyResetTimestamp(),
+        };
+        await chrome.storage.local.set({ limits: newLimits, currentPlan, deepResearch: dr });
         sendResponse({ status: 'ok' });
-      });
-    });
+      } catch (error) {
+        console.warn('플랜 변경 저장 실패:', error);
+        sendResponse({ status: 'error' });
+      }
+    })();
     return true;
   }
 
   if (message.type === 'refreshPlanLimits') {
     (async () => {
       try {
-        const result = await refreshPlanLimitsFromRemote(currentPlan);
-        await migrateModelAliases(currentPlan);
+        const plan = await getPersistedCurrentPlan();
+        const result = await refreshPlanLimitsFromRemote(plan);
+        await migrateModelAliases(plan);
         sendResponse(result);
       } catch (error) {
         console.warn('플랜 동기화 메시지 처리 실패:', error);
@@ -248,7 +305,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  return true;
+  return false;
 });
 
 try {
