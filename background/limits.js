@@ -4,7 +4,7 @@
   const REMOTE_LIMITS_URL =
     'https://raw.githubusercontent.com/gurumnyang/chatgpt-gurum-tool/main/config/plan-limits.json';
   const PACKAGED_LIMITS_PATH = 'config/plan-limits.json';
-  const ALLOWED_PLANS = new Set(['free', 'plus', 'team', 'pro']);
+  const ALLOWED_PLANS = new Set(['free', 'go', 'plus', 'team', 'pro']);
   const ALLOWED_LIMIT_TYPES = new Set([
     'fiveHour',
     'threeHour',
@@ -12,6 +12,7 @@
     'weekly',
     'monthly',
     'unlimited',
+    'dynamic',
   ]);
   // 원격 설정의 목적상 새 모델 키는 코드 릴리스 없이 추가될 수 있어야 한다.
   // 알려진 이름의 고정 목록 대신 안전한 canonical-key 문법을 허용한다.
@@ -21,104 +22,98 @@
   const MIN_RESET_TIMESTAMP = Date.UTC(2020, 0, 1);
   const MAX_RESET_TIMESTAMP = Date.UTC(2100, 0, 1);
 
+  const instant = (type, value, includeAuto = false) => ({
+    type,
+    value,
+    displayName: 'GPT-5.5 Instant',
+    detect: [
+      ...(includeAuto ? ['auto'] : []),
+      'gpt-5.5',
+      'gpt-5.5-instant',
+      'gpt-5-5',
+      'gpt-5-5-instant',
+    ],
+  });
+  const legacyInstant = (type, value) => ({
+    type,
+    value,
+    displayName: 'GPT-5.3 Instant',
+    detect: ['gpt-5.3', 'gpt-5.3-instant', 'gpt-5-3', 'gpt-5-3-instant'],
+  });
+  const meteredSol = {
+    type: 'weekly',
+    value: 3000,
+    displayName: 'GPT-5.6 Sol',
+    detect: [
+      'gpt-5.6',
+      'gpt-5-6',
+      'gpt-5.6-sol',
+      'gpt-5-6-sol',
+      'gpt-5.6-thinking',
+      'gpt-5-6-thinking',
+    ],
+  };
+  const meteredSolPro = {
+    type: 'monthly',
+    value: 15,
+    displayName: 'GPT-5.6 Sol Pro',
+    detect: ['gpt-5.6-pro', 'gpt-5-6-pro'],
+  };
+  const thinking = (type, value) => ({
+    type,
+    value,
+    displayName: 'GPT-5.5 Thinking',
+    detect: ['gpt-5.5-thinking', 'gpt-5-5-thinking'],
+  });
+  const pro = (type, value) => ({
+    type,
+    value,
+    displayName: 'GPT-5.5 Pro',
+    detect: ['gpt-5.5-pro', 'gpt-5-5-pro'],
+  });
+  const deepResearch = (value) => ({
+    type: 'monthly',
+    value,
+    displayName: 'Deep Research',
+  });
   const defaultLimits = {
     free: {
-      'gpt-5': {
-        type: 'fiveHour',
-        value: 10,
-        displayName: 'GPT-5',
-        detect: ['auto', 'gpt-5', 'gpt-5-instant'],
-      },
-      'gpt-5-thinking': {
-        type: 'daily',
-        value: 1,
-        displayName: 'GPT-5 Thinking',
-        detect: ['gpt-5-thinking'],
-      },
-      'deep-research': { type: 'monthly', value: 5, displayName: 'Deep Research' },
+      'gpt-5-5-instant': instant('dynamic', null, true),
+      'deep-research': deepResearch(5),
+    },
+    go: {
+      'gpt-5-5-instant': instant('threeHour', 160, true),
+      'gpt-5-3-instant': legacyInstant('threeHour', 160),
+      'gpt-5-5-thinking': thinking('fiveHour', 10),
+      'deep-research': deepResearch(5),
     },
     plus: {
-      'gpt-4o': { type: 'threeHour', value: 80, displayName: 'GPT-4o', detect: ['gpt-4o'] },
-      'gpt-4-1': { type: 'threeHour', value: 80, displayName: 'GPT-4.1', detect: ['gpt-4-1'] },
+      'gpt-5-5-instant': instant('threeHour', 160),
+      'gpt-5-6-sol': meteredSol,
+      'gpt-5-3-instant': legacyInstant('threeHour', 160),
+      'gpt-5-5-thinking': thinking('weekly', 3000),
       o3: { type: 'weekly', value: 100, displayName: 'o3', detect: ['o3'] },
-      'o4-mini': { type: 'daily', value: 300, displayName: 'o4-mini', detect: ['o4-mini'] },
-      'gpt-5': {
-        type: 'threeHour',
-        value: 160,
-        displayName: 'GPT-5',
-        detect: ['gpt-5', 'gpt-5-instant'],
-      },
-      'gpt-5-thinking': {
-        type: 'weekly',
-        value: 200,
-        displayName: 'GPT-5 Thinking',
-        detect: ['gpt-5-thinking'],
-      },
-      'gpt-5-t-mini': {
-        type: 'weekly',
-        value: 2800,
-        displayName: 'GPT-5 Thinking mini',
-        detect: ['gpt-5-t-mini'],
-      },
-      'deep-research': { type: 'monthly', value: 25, displayName: 'Deep Research' },
+      'deep-research': deepResearch(25),
     },
     team: {
-      'gpt-4o': { type: 'unlimited', value: null, displayName: 'GPT-4o', detect: ['gpt-4o'] },
-      'gpt-4-1': { type: 'threeHour', value: 500, displayName: 'GPT-4.1', detect: ['gpt-4-1'] },
+      'gpt-5-5-instant': instant('unlimited', null),
+      'gpt-5-6-sol': meteredSol,
+      'gpt-5-6-pro': meteredSolPro,
+      'gpt-5-3-instant': legacyInstant('unlimited', null),
+      'gpt-5-5-thinking': thinking('weekly', 3000),
+      'gpt-5-5-pro': pro('monthly', 15),
       o3: { type: 'daily', value: 300, displayName: 'o3', detect: ['o3'] },
-      'o4-mini': { type: 'daily', value: 300, displayName: 'o4-mini', detect: ['o4-mini'] },
-      'gpt-5': {
-        type: 'unlimited',
-        value: null,
-        displayName: 'GPT-5',
-        detect: ['gpt-5', 'gpt-5-instant'],
-      },
-      'gpt-5-thinking': {
-        type: 'weekly',
-        value: 200,
-        displayName: 'GPT-5 Thinking',
-        detect: ['gpt-5-thinking'],
-      },
-      'gpt-5-t-mini': {
-        type: 'weekly',
-        value: 2800,
-        displayName: 'GPT-5 Thinking mini',
-        detect: ['gpt-5-t-mini'],
-      },
-      'gpt-5-pro': { type: 'monthly', value: 15, displayName: 'GPT-5 Pro', detect: ['gpt-5-pro'] },
-      'deep-research': { type: 'monthly', value: 25, displayName: 'Deep Research' },
+      'deep-research': deepResearch(25),
     },
     pro: {
-      'gpt-4o': { type: 'unlimited', value: null, displayName: 'GPT-4o', detect: ['gpt-4o'] },
-      'gpt-4-1': { type: 'unlimited', value: null, displayName: 'GPT-4.1', detect: ['gpt-4-1'] },
-      'gpt-4-5': { type: 'unlimited', value: null, displayName: 'GPT-4.5', detect: ['gpt-4-5'] },
+      'gpt-5-5-instant': instant('unlimited', null),
+      'gpt-5-6-sol': { ...meteredSol, type: 'unlimited', value: null },
+      'gpt-5-6-pro': { ...meteredSolPro, type: 'unlimited', value: null },
+      'gpt-5-3-instant': legacyInstant('unlimited', null),
+      'gpt-5-5-thinking': thinking('unlimited', null),
+      'gpt-5-5-pro': pro('unlimited', null),
       o3: { type: 'unlimited', value: null, displayName: 'o3', detect: ['o3'] },
-      'o4-mini': { type: 'unlimited', value: null, displayName: 'o4-mini', detect: ['o4-mini'] },
-      'gpt-5': {
-        type: 'unlimited',
-        value: null,
-        displayName: 'GPT-5',
-        detect: ['gpt-5', 'gpt-5-instant'],
-      },
-      'gpt-5-thinking': {
-        type: 'unlimited',
-        value: null,
-        displayName: 'GPT-5 Thinking',
-        detect: ['gpt-5-thinking'],
-      },
-      'gpt-5-t-mini': {
-        type: 'unlimited',
-        value: null,
-        displayName: 'GPT-5 Thinking mini',
-        detect: ['gpt-5-t-mini'],
-      },
-      'gpt-5-pro': {
-        type: 'unlimited',
-        value: null,
-        displayName: 'GPT-5 Pro',
-        detect: ['gpt-5-pro'],
-      },
-      'deep-research': { type: 'monthly', value: 250, displayName: 'Deep Research' },
+      'deep-research': deepResearch(250),
     },
   };
 
@@ -160,7 +155,8 @@
       entry.value === null ||
       (Number.isSafeInteger(entry.value) && entry.value >= 0 && entry.value <= MAX_LIMIT_VALUE);
     if (!valueIsValid) return false;
-    if ((entry.type === 'unlimited') !== (entry.value === null)) return false;
+    const hasUnknownNumericLimit = entry.type === 'unlimited' || entry.type === 'dynamic';
+    if (hasUnknownNumericLimit !== (entry.value === null)) return false;
 
     if (entry.detect !== undefined) {
       if (!Array.isArray(entry.detect) || entry.detect.length === 0 || entry.detect.length > 32) {
@@ -209,7 +205,7 @@
 
   let packagedLimitsPromise;
 
-  async function loadPackagedPlanLimits() {
+  async function loadPackagedPlanLimitsDocument() {
     if (!packagedLimitsPromise) {
       packagedLimitsPromise = (async () => {
         try {
@@ -218,7 +214,7 @@
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const validated = validatePlanLimitsDocument(await res.json());
           if (!validated) throw new Error('Invalid packaged plan JSON');
-          return validated.plans;
+          return validated;
         } catch (e) {
           console.warn('패키지 플랜 한도 로드 실패:', e);
           return null;
@@ -226,6 +222,10 @@
       })();
     }
     return packagedLimitsPromise;
+  }
+
+  async function loadPackagedPlanLimits() {
+    return (await loadPackagedPlanLimitsDocument())?.plans || null;
   }
 
   async function fetchRemotePlanLimits() {
@@ -243,16 +243,19 @@
   }
 
   async function getPlanLimitsTemplate() {
-    const data = await chrome.storage.local.get(['planLimitsAll']);
+    const data = await chrome.storage.local.get(['planLimitsAll', 'planLimitsUpdatedAt']);
     const storedLimits = validateStoredPlanLimits(data.planLimitsAll);
-    if (storedLimits) return storedLimits;
-    return (await loadPackagedPlanLimits()) || defaultLimits;
+    const packaged = await loadPackagedPlanLimitsDocument();
+    const storedTimestamp = parseDocumentTimestamp(data.planLimitsUpdatedAt);
+    const packagedTimestamp = parseDocumentTimestamp(packaged?.updatedAt);
+    if (storedLimits && (!packaged || storedTimestamp >= packagedTimestamp)) return storedLimits;
+    return packaged?.plans || storedLimits || defaultLimits;
   }
 
   async function getDeepResearchTotalFor(plan) {
     const tmpl = await getPlanLimitsTemplate();
     const value = tmpl[plan]?.['deep-research']?.value;
-    return isValidDeepResearchCount(value) ? value : '-';
+    return isValidDeepResearchCount(value) ? value : '?';
   }
 
   function isValidDeepResearchCount(value) {
@@ -273,24 +276,54 @@
       : null;
   }
 
+  function parseDocumentTimestamp(value) {
+    if (typeof value !== 'string') return 0;
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+
   async function refreshPlanLimitsFromRemote(currentPlanFallback) {
     try {
       const conf = await chrome.storage.local.get(['currentPlan']);
       const candidatePlan = conf.currentPlan || currentPlanFallback;
       const plan = isAllowedPlan(candidatePlan) ? candidatePlan : 'free';
-      const remote = await fetchRemotePlanLimits();
-      if (!remote) return { updated: false };
-      const planLimitsAll = remote.plans;
-      const packagedLimits = (await loadPackagedPlanLimits()) || defaultLimits;
+      const [remote, packaged, stored] = await Promise.all([
+        fetchRemotePlanLimits(),
+        loadPackagedPlanLimitsDocument(),
+        chrome.storage.local.get(['planLimitsAll', 'planLimitsVersion', 'planLimitsUpdatedAt']),
+      ]);
+      const storedPlans = validateStoredPlanLimits(stored.planLimitsAll);
+      const candidates = [remote, packaged];
+      if (storedPlans) {
+        candidates.push({
+          plans: storedPlans,
+          version: stored.planLimitsVersion,
+          updatedAt: stored.planLimitsUpdatedAt,
+        });
+      }
+      const selected = candidates
+        .filter(Boolean)
+        .sort(
+          (a, b) => parseDocumentTimestamp(b.updatedAt) - parseDocumentTimestamp(a.updatedAt),
+        )[0];
+      if (!selected) return { updated: false };
+      const planLimitsAll = selected.plans;
+      const packagedLimits = packaged?.plans || defaultLimits;
       const limits = planLimitsAll[plan] || packagedLimits[plan] || {};
 
       const now = Date.now();
-      await chrome.storage.local.set({ planLimitsAll, limits, lastPlanSyncAt: now });
+      await chrome.storage.local.set({
+        planLimitsAll,
+        planLimitsVersion: selected.version,
+        planLimitsUpdatedAt: selected.updatedAt,
+        limits,
+        lastPlanSyncAt: now,
+      });
 
       chrome.storage.local.get('deepResearch', (data) => {
         const dr = data.deepResearch || {};
         const total = planLimitsAll[plan]?.['deep-research']?.value;
-        dr.total = isValidDeepResearchCount(total) ? total : (dr.total ?? '-');
+        dr.total = isValidDeepResearchCount(total) ? total : '?';
         chrome.storage.local.set({ deepResearch: dr });
       });
 
@@ -300,8 +333,8 @@
 
       return {
         updated: true,
-        version: remote.version,
-        updatedAt: remote.updatedAt,
+        version: selected.version,
+        updatedAt: selected.updatedAt,
         lastSyncAt: now,
       };
     } catch (e) {

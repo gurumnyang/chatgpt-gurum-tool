@@ -7,6 +7,7 @@ const { readJson, readProjectFile } = require('./helpers/source');
 
 const CHAT_MATCHES = ['https://chat.openai.com/*', 'https://chatgpt.com/*'];
 const WEB_RESOURCES = [
+  'conversation-snapshot.js',
   'dist/tiktoken.bundle.js',
   'fetch-hook.js',
   'timestamp-injector.js',

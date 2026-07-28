@@ -263,7 +263,7 @@
       .deep-research-title {
         font-weight: 600;
         color: var(--text);
-        margin-bottom: 8px;
+        margin: 0;
       }
       .deep-research-info {
         display: flex;
@@ -289,11 +289,7 @@
         font-size: 11px;
         color: var(--primary);
         font-weight: 500;
-      }
-      .data-source {
-        font-size: 10px;
-        color: var(--muted);
-        font-style: italic;
+        margin-left: 6px;
       }
       .context-info {
         background: var(--card-bg);
@@ -452,12 +448,19 @@
         <div id="deepResearchCount">-</div>
       </div>
 
+      <div class="deep-research">
+        <div class="deep-research-title" data-i18n="image_generation_title">
+          Image Generation 남은 횟수
+        </div>
+        <div id="imageGenerationCount">-</div>
+      </div>
+
       <div class="context-info">
         <div
           class="deep-research-title"
           style="display: flex; justify-content: space-between; align-items: center; gap: 8px"
         >
-          <span data-i18n="context_title">현재 컨텍스트 크기</span>
+          <span data-i18n="context_title">전체 세션 크기</span>
           <div
             style="
               font-size: 11px;
@@ -544,8 +547,9 @@
         <span class="model-name" data-i18n="current_plan">현재 플랜</span>
         <select id="planSelect">
           <option value="free">Free</option>
+          <option value="go">Go</option>
           <option value="plus">Plus</option>
-          <option value="team">Team</option>
+          <option value="team">Business</option>
           <option value="pro">Pro</option>
         </select>
       </div>
@@ -588,8 +592,12 @@
       <div class="model-item">
         <span class="model-name" data-i18n="timestamp_format_label">타임스탬프 형식</span>
         <select id="timestampFormatSelect" aria-label="Timestamp format">
-          <option value="standard" data-i18n="timestamp_format_standard">표준 (2025-01-31 12:34:56)</option>
-          <option value="compact" data-i18n="timestamp_format_compact">간단 (2025/01/31 12:34)</option>
+          <option value="standard" data-i18n="timestamp_format_standard">
+            표준 (2025-01-31 12:34:56)
+          </option>
+          <option value="compact" data-i18n="timestamp_format_compact">
+            간단 (2025/01/31 12:34)
+          </option>
           <option value="relative" data-i18n="timestamp_format_relative">상대 시간</option>
         </select>
       </div>

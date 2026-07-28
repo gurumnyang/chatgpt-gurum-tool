@@ -12,7 +12,8 @@
   "language_english": { "message": "영어" },
 
   "deep_research_title": { "message": "Deep Research 남은 횟수" },
-  "context_title": { "message": "현재 컨텍스트 크기" },
+  "image_generation_title": { "message": "Image Generation 남은 횟수" },
+  "context_title": { "message": "전체 세션 크기" },
   "current_mode_base": { "message": "베이스 모드" },
   "current_mode_inference": { "message": "추론 모드" },
 
@@ -23,7 +24,6 @@
   "sync_done": { "message": "동기화 완료" },
   "sync_failed": { "message": "동기화 실패 (네트워크 확인)" },
   "refresh_to_update": { "message": "(새로고침하여 갱신)" },
-
   "export_markdown": { "message": "Markdown" },
   "export_json": { "message": "JSON" },
   "export_text": { "message": "텍스트" },
@@ -35,6 +35,7 @@
   "limit_label_threeHour": { "message": "3시간" },
   "limit_label_daily": { "message": "일일" },
   "limit_label_weekly": { "message": "주간" },
+  "limit_label_dynamic": { "message": "변동 한도" },
   "limit_label_monthly": { "message": "월간" },
 
   "chars_label": { "message": "글자" },

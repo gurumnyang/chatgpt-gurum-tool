@@ -12,7 +12,8 @@
   "language_english": { "message": "English" },
 
   "deep_research_title": { "message": "Deep Research Remaining" },
-  "context_title": { "message": "Current Context Size" },
+  "image_generation_title": { "message": "Image Generation Remaining" },
+  "context_title": { "message": "Full Session Size" },
   "current_mode_base": { "message": "Base Mode" },
   "current_mode_inference": { "message": "Reasoning Mode" },
 
@@ -23,7 +24,6 @@
   "sync_done": { "message": "Sync complete" },
   "sync_failed": { "message": "Sync failed (check network)" },
   "refresh_to_update": { "message": "(Refresh to update)" },
-
   "export_markdown": { "message": "Markdown" },
   "export_json": { "message": "JSON" },
   "export_text": { "message": "Text" },
@@ -35,6 +35,7 @@
   "limit_label_threeHour": { "message": "3 hours" },
   "limit_label_daily": { "message": "Daily" },
   "limit_label_weekly": { "message": "Weekly" },
+  "limit_label_dynamic": { "message": "Variable limit" },
   "limit_label_monthly": { "message": "Monthly" },
 
   "chars_label": { "message": "chars" },

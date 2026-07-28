@@ -4,17 +4,21 @@
   const PAGE_BRIDGE_VERSION = 1;
   const MAX_PROMPT_SEGMENT_LENGTH = 100_000;
   const MAX_TIMESTAMP_MESSAGES = 50_000;
+  const MAX_SNAPSHOT_DOM_MESSAGES = 2_000;
+  const MAX_SNAPSHOT_DOM_TEXT_LENGTH = 5_000_000;
   const originalFetch = window.fetch;
-  const convDetailRegex = new RegExp(
-    '^https://(chat\\.openai|chatgpt)\\.com/backend-api/(?:[a-z-]+/)?conversation/[0-9a-fA-F-]+$',
-  );
-  const conversationSendRegex = /\/backend-api\/(?:[\w-]+\/)*conversation(?:$|\?|\/)/;
+  const CONVERSATION_SEND_PATH_PATTERN = /^\/backend-api\/(?:[\w-]+\/)*conversation\/?$/;
+  const CONVERSATION_INIT_PATH_PATTERN = /^\/backend-api\/(?:[\w-]+\/)*conversation\/init\/?$/;
+  const CONVERSATION_DETAIL_PATH_PATTERN =
+    /^\/backend-api\/(?:[\w-]+\/)*conversation\/[0-9a-fA-F-]+\/?$/;
 
   const promptState = {
     toneDirective: null,
     promptText: null,
     includeTimestamp: false,
   };
+  const snapshotBuilder = window.GurumConversationSnapshot || null;
+  let conversationSnapshot = null;
 
   function createPageBridgeMessage(type, payload = {}) {
     return {
@@ -46,43 +50,271 @@
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     if (value.feature_name !== 'deep_research') return null;
 
-    const remaining = Number(value.remaining);
+    const remaining = Number(value.remaining ?? value.remaining_count ?? value.available);
     if (!Number.isSafeInteger(remaining) || remaining < 0 || remaining > 100_000) return null;
 
     const rawReset =
-      typeof value.reset_after === 'string' && value.reset_after.length <= 128
-        ? value.reset_after
-        : typeof value.reset_after === 'number' && Number.isFinite(value.reset_after)
-          ? value.reset_after
+      typeof (value.reset_after ?? value.reset_at ?? value.resets_at) === 'string' &&
+      (value.reset_after ?? value.reset_at ?? value.resets_at).length <= 128
+        ? (value.reset_after ?? value.reset_at ?? value.resets_at)
+        : typeof (value.reset_after ?? value.reset_at ?? value.resets_at) === 'number' &&
+            Number.isFinite(value.reset_after ?? value.reset_at ?? value.resets_at)
+          ? (value.reset_after ?? value.reset_at ?? value.resets_at)
           : null;
-    if (rawReset === null) return null;
-    const normalizedReset =
-      typeof rawReset === 'number' && rawReset < 1e11 ? rawReset * 1000 : rawReset;
-    const resetMs = new Date(normalizedReset).getTime();
+    let resetAfter;
+    if (rawReset !== null) {
+      const normalizedReset =
+        typeof rawReset === 'number' && rawReset < 1e11 ? rawReset * 1000 : rawReset;
+      const resetMs = new Date(normalizedReset).getTime();
+      if (
+        Number.isFinite(resetMs) &&
+        resetMs >= Date.UTC(2020, 0, 1) &&
+        resetMs <= Date.UTC(2100, 0, 1)
+      ) {
+        resetAfter = new Date(resetMs).toISOString();
+      }
+    }
+
+    const info = {
+      feature_name: 'deep_research',
+      remaining,
+    };
+    if (resetAfter) info.reset_after = resetAfter;
+    return info;
+  }
+
+  function sanitizeImageGenerationInfo(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    if (!['image_gen', 'image_generation'].includes(value.feature_name)) return null;
+
+    const remaining = Number(value.remaining ?? value.remaining_count ?? value.available);
+    if (!Number.isSafeInteger(remaining) || remaining < 0 || remaining > 100_000) return null;
+
+    const rawReset =
+      typeof (value.reset_after ?? value.reset_at ?? value.resets_at) === 'string' &&
+      (value.reset_after ?? value.reset_at ?? value.resets_at).length <= 128
+        ? (value.reset_after ?? value.reset_at ?? value.resets_at)
+        : typeof (value.reset_after ?? value.reset_at ?? value.resets_at) === 'number' &&
+            Number.isFinite(value.reset_after ?? value.reset_at ?? value.resets_at)
+          ? (value.reset_after ?? value.reset_at ?? value.resets_at)
+          : null;
+    let resetAfter;
+    if (rawReset !== null) {
+      const normalizedReset =
+        typeof rawReset === 'number' && rawReset < 1e11 ? rawReset * 1000 : rawReset;
+      const resetMs = new Date(normalizedReset).getTime();
+      if (
+        Number.isFinite(resetMs) &&
+        resetMs >= Date.UTC(2020, 0, 1) &&
+        resetMs <= Date.UTC(2100, 0, 1)
+      ) {
+        resetAfter = new Date(resetMs).toISOString();
+      }
+    }
+
+    const info = {
+      feature_name: 'image_gen',
+      remaining,
+    };
+    if (resetAfter) info.reset_after = resetAfter;
+    return info;
+  }
+
+  function findDeepResearchInfo(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+
+    const wrappers = [data, data.usage, data.credits].filter(
+      (value) => value && typeof value === 'object' && !Array.isArray(value),
+    );
+    const candidates = [];
+    for (const wrapper of wrappers) {
+      for (const key of ['limits_progress', 'features', 'limits']) {
+        if (Array.isArray(wrapper[key])) candidates.push(...wrapper[key]);
+      }
+      for (const key of ['deep_research', 'deepResearch']) {
+        const direct = wrapper[key];
+        if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+          candidates.push({ ...direct, feature_name: 'deep_research' });
+        }
+      }
+      if (wrapper.limits && typeof wrapper.limits === 'object' && !Array.isArray(wrapper.limits)) {
+        const direct = wrapper.limits.deep_research ?? wrapper.limits.deepResearch;
+        if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+          candidates.push({ ...direct, feature_name: 'deep_research' });
+        }
+      }
+    }
+
+    for (const candidate of candidates) {
+      const info = sanitizeDeepResearchInfo(candidate);
+      if (info) return info;
+    }
+    return null;
+  }
+
+  function findImageGenerationInfo(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+
+    const wrappers = [data, data.usage, data.credits].filter(
+      (value) => value && typeof value === 'object' && !Array.isArray(value),
+    );
+    const candidates = [];
+    for (const wrapper of wrappers) {
+      for (const key of ['limits_progress', 'features', 'limits']) {
+        if (Array.isArray(wrapper[key])) candidates.push(...wrapper[key]);
+      }
+      for (const key of ['image_gen', 'image_generation', 'imageGeneration']) {
+        const direct = wrapper[key];
+        if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+          candidates.push({ ...direct, feature_name: 'image_gen' });
+        }
+      }
+      if (wrapper.limits && typeof wrapper.limits === 'object' && !Array.isArray(wrapper.limits)) {
+        const direct =
+          wrapper.limits.image_gen ??
+          wrapper.limits.image_generation ??
+          wrapper.limits.imageGeneration;
+        if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+          candidates.push({ ...direct, feature_name: 'image_gen' });
+        }
+      }
+    }
+
+    for (const candidate of candidates) {
+      const info = sanitizeImageGenerationInfo(candidate);
+      if (info) return info;
+    }
+    return null;
+  }
+
+  function getBackendApiPath(url) {
+    if (typeof url !== 'string' || !url) return '';
+    try {
+      const parsed = new URL(url, window.location.origin);
+      if (parsed.hostname !== 'chatgpt.com' && parsed.hostname !== 'chat.openai.com') return '';
+      return parsed.pathname;
+    } catch {
+      return '';
+    }
+  }
+
+  function isConversationSendUrl(url) {
+    return CONVERSATION_SEND_PATH_PATTERN.test(getBackendApiPath(url));
+  }
+
+  function isConversationInitUrl(url) {
+    return CONVERSATION_INIT_PATH_PATTERN.test(getBackendApiPath(url));
+  }
+
+  function isConversationDetailUrl(url) {
+    return CONVERSATION_DETAIL_PATH_PATTERN.test(getBackendApiPath(url));
+  }
+
+  function sanitizeConversationId(value) {
+    return typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : null;
+  }
+
+  function getConversationIdFromUrl(url) {
+    const path = getBackendApiPath(url);
+    const match = path.match(/\/conversation\/([0-9a-fA-F-]+)\/?$/);
+    return match ? sanitizeConversationId(match[1]) : null;
+  }
+
+  function sanitizeDomMessages(value) {
+    if (!Array.isArray(value) || value.length > MAX_SNAPSHOT_DOM_MESSAGES) return [];
+    const messages = [];
+    let totalLength = 0;
+    for (const item of value) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const id = sanitizeConversationId(item.id);
+      const turnId = sanitizeConversationId(item.turnId);
+      const sender = item.sender;
+      const content = item.content;
+      if (
+        !id ||
+        (sender !== 'user' && sender !== 'assistant') ||
+        typeof content !== 'string' ||
+        content.length > 500_000
+      ) {
+        continue;
+      }
+      totalLength += content.length;
+      if (totalLength > MAX_SNAPSHOT_DOM_TEXT_LENGTH) break;
+      messages.push({ id, turnId, sender, content });
+    }
+    return messages;
+  }
+
+  async function loadConversationSnapshot(conversationId) {
     if (
-      !Number.isFinite(resetMs) ||
-      resetMs < Date.UTC(2020, 0, 1) ||
-      resetMs > Date.UTC(2100, 0, 1)
+      !conversationId ||
+      !snapshotBuilder ||
+      typeof snapshotBuilder.buildConversationSnapshot !== 'function'
     ) {
       return null;
     }
+    try {
+      const response = await originalFetch.call(
+        window,
+        `/backend-api/conversation/${encodeURIComponent(conversationId)}`,
+      );
+      if (!response || response.ok === false) return null;
+      const payload = await response.json();
+      publishConversationTimestamps(payload);
+      return snapshotBuilder.buildConversationSnapshot(payload, conversationId);
+    } catch {
+      return null;
+    }
+  }
 
-    return {
-      feature_name: 'deep_research',
-      remaining,
-      reset_after: new Date(resetMs).toISOString(),
-    };
+  async function respondWithConversationSnapshot(data) {
+    if (
+      typeof data.requestId !== 'string' ||
+      data.requestId.length === 0 ||
+      data.requestId.length > 128
+    ) {
+      return;
+    }
+    const requestedConversationId = sanitizeConversationId(data.conversationId);
+    let snapshot = conversationSnapshot;
+    if (
+      snapshot &&
+      requestedConversationId &&
+      snapshot.conversationId &&
+      requestedConversationId !== snapshot.conversationId
+    ) {
+      snapshot = null;
+    }
+    if (!snapshot && requestedConversationId) {
+      snapshot = await loadConversationSnapshot(requestedConversationId);
+      if (snapshot) conversationSnapshot = snapshot;
+    }
+    if (snapshot && snapshotBuilder && typeof snapshotBuilder.mergeDomMessages === 'function') {
+      snapshot = snapshotBuilder.mergeDomMessages(snapshot, sanitizeDomMessages(data.domMessages));
+    }
+    window.postMessage(
+      createPageBridgeMessage('GURUM_CONVERSATION_SNAPSHOT_RESPONSE', {
+        requestId: data.requestId,
+        snapshot,
+      }),
+      '*',
+    );
   }
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!isPageBridgeMessage(data, 'GURUM_PROMPT_STATE')) return;
-    const payload = data.payload || {};
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
-    promptState.toneDirective = sanitizePromptSegment(payload.toneDirective);
-    promptState.promptText = sanitizePromptSegment(payload.promptText);
-    promptState.includeTimestamp = payload.includeTimestamp === true;
+    if (isPageBridgeMessage(data, 'GURUM_PROMPT_STATE')) {
+      const payload = data.payload || {};
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      promptState.toneDirective = sanitizePromptSegment(payload.toneDirective);
+      promptState.promptText = sanitizePromptSegment(payload.promptText);
+      promptState.includeTimestamp = payload.includeTimestamp === true;
+      return;
+    }
+    if (isPageBridgeMessage(data, 'GURUM_CONVERSATION_SNAPSHOT_REQUEST')) {
+      respondWithConversationSnapshot(data);
+    }
   });
 
   function hasPromptSegments() {
@@ -199,6 +431,44 @@
     return true;
   }
 
+  function publishConversationTimestamps(data) {
+    try {
+      const mapping = data && (data.mapping || (data.conversation && data.conversation.mapping));
+      if (!mapping || typeof mapping !== 'object') return;
+      const messages = [];
+      for (const key in mapping) {
+        const message = mapping[key] && mapping[key].message;
+        if (!message) continue;
+        const id = message.id;
+        const role = message.author && message.author.role;
+        const createTime = Number(message.create_time);
+        if (
+          typeof id !== 'string' ||
+          id.length === 0 ||
+          id.length > 256 ||
+          (typeof role !== 'string' && role != null) ||
+          (typeof role === 'string' && role.length > 32) ||
+          !Number.isFinite(createTime) ||
+          createTime < 946684800 ||
+          createTime > Date.now() / 1000 + 86400
+        ) {
+          continue;
+        }
+        messages.push({ id, role, create_time: createTime });
+        if (messages.length >= MAX_TIMESTAMP_MESSAGES) break;
+      }
+      if (messages.length) {
+        window.postMessage(createPageBridgeMessage('GURUM_TS_CONV_DATA', { messages }), '*');
+      }
+    } catch {}
+  }
+
+  function getRequestMethod(input, init) {
+    const method =
+      init && init.method != null ? init.method : input instanceof Request && input.method;
+    return typeof method === 'string' ? method.toUpperCase() : 'GET';
+  }
+
   window.fetch = async function (input, init) {
     let url = '';
     if (typeof input === 'string') url = input;
@@ -208,14 +478,13 @@
     let requestInfo = input;
     let requestInit = init;
 
-    const isConversationInit = typeof url === 'string' && url.includes('/conversation/init');
-    const isConversationDetail =
-      (typeof url === 'string' && url.startsWith('/backend-api/conversation/')) ||
-      (url && convDetailRegex.test(url));
+    const isConversationInit = isConversationInitUrl(url);
+    const isConversationDetail = isConversationDetailUrl(url);
+    const originalMethod = getRequestMethod(input, init);
 
     try {
       const targetForInjection =
-        url && !isConversationDetail && !isConversationInit && conversationSendRegex.test(url);
+        url && !isConversationDetail && !isConversationInit && isConversationSendUrl(url);
 
       if (targetForInjection && hasPromptSegments()) {
         const baseInit = { ...(init || {}) };
@@ -279,61 +548,45 @@
         cloned
           .json()
           .then((data) => {
-            if (data && Array.isArray(data.limits_progress)) {
-              const deep = data.limits_progress.find((x) => x.feature_name === 'deep_research');
-              const info = sanitizeDeepResearchInfo(deep);
-              if (info) {
-                window.postMessage(
-                  createPageBridgeMessage('CHATGPT_TOOL_DEEP_RESEARCH_INFO', { info }),
-                  '*',
-                );
-              }
+            const deepResearchInfo = findDeepResearchInfo(data);
+            if (deepResearchInfo) {
+              window.postMessage(
+                createPageBridgeMessage('CHATGPT_TOOL_DEEP_RESEARCH_INFO', {
+                  info: deepResearchInfo,
+                }),
+                '*',
+              );
+            }
+            const imageGenerationInfo = findImageGenerationInfo(data);
+            if (imageGenerationInfo) {
+              window.postMessage(
+                createPageBridgeMessage('CHATGPT_TOOL_IMAGE_GENERATION_INFO', {
+                  info: imageGenerationInfo,
+                }),
+                '*',
+              );
             }
           })
           .catch(() => {});
       } catch (_) {}
     }
 
-    if (isConversationDetail) {
+    if (isConversationDetail && originalMethod === 'GET') {
+      conversationSnapshot = null;
       try {
-        const cloned = response.clone();
-        cloned
+        response
+          .clone()
           .json()
           .then((data) => {
-            try {
-              const mapping =
-                data && (data.mapping || (data.conversation && data.conversation.mapping));
-              if (!mapping || typeof mapping !== 'object') return;
-              const msgs = [];
-              for (const key in mapping) {
-                const m = mapping[key] && mapping[key].message;
-                if (!m) continue;
-                const id = m.id;
-                const role = m.author && m.author.role;
-                const ct = Number(m.create_time);
-                if (
-                  typeof id !== 'string' ||
-                  id.length === 0 ||
-                  id.length > 256 ||
-                  (typeof role !== 'string' && role != null) ||
-                  (typeof role === 'string' && role.length > 32) ||
-                  !Number.isFinite(ct) ||
-                  ct < 946684800 ||
-                  ct > Date.now() / 1000 + 86400
-                ) {
-                  continue;
-                }
-                msgs.push({ id, role, create_time: ct });
-                if (msgs.length >= MAX_TIMESTAMP_MESSAGES) break;
-              }
-              if (msgs.length) {
-                window.postMessage(
-                  createPageBridgeMessage('GURUM_TS_CONV_DATA', { messages: msgs }),
-                  '*',
-                );
-              }
-            } catch (e) {
-              /* ignore */
+            publishConversationTimestamps(data);
+            if (
+              snapshotBuilder &&
+              typeof snapshotBuilder.buildConversationSnapshot === 'function'
+            ) {
+              conversationSnapshot = snapshotBuilder.buildConversationSnapshot(
+                data,
+                getConversationIdFromUrl(url),
+              );
             }
           })
           .catch(() => {});

@@ -26,6 +26,44 @@ test('content-side token responses require the matching requestId and bounded da
   assert.match(source, /Number\.isSafeInteger\(data\.chars\)/);
 });
 
+test('content accepts Deep Research remaining when reset metadata is unavailable', () => {
+  const source = extractFunction(readProjectFile('content.js'), 'sanitizeDeepResearchInfo');
+  const sanitizeDeepResearchInfo = Function(`${source}; return sanitizeDeepResearchInfo;`)();
+
+  assert.deepEqual(sanitizeDeepResearchInfo({ feature_name: 'deep_research', remaining: 7 }), {
+    feature_name: 'deep_research',
+    remaining: 7,
+  });
+  assert.equal(
+    sanitizeDeepResearchInfo({
+      feature_name: 'deep_research',
+      remaining: 7,
+      reset_after: 'not-a-date',
+    }),
+    null,
+  );
+});
+
+test('content accepts Image Generation remaining and normalizes the feature name', () => {
+  const source = extractFunction(readProjectFile('content.js'), 'sanitizeImageGenerationInfo');
+  const sanitizeImageGenerationInfo = Function(`${source}; return sanitizeImageGenerationInfo;`)();
+
+  assert.deepEqual(
+    sanitizeImageGenerationInfo({ feature_name: 'image_generation', remaining: 4 }),
+    {
+      feature_name: 'image_gen',
+      remaining: 4,
+    },
+  );
+  assert.equal(
+    sanitizeImageGenerationInfo({
+      feature_name: 'image_gen',
+      remaining: -1,
+    }),
+    null,
+  );
+});
+
 test('token calculator rejects foreign messages and correlates a valid response', () => {
   const listeners = [];
   const posted = [];

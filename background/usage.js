@@ -2,9 +2,21 @@
   const BG = (self.__GURUM_BG__ = self.__GURUM_BG__ || {});
 
   const NOTIFY_THRESHOLD = 0.8;
+  const CONVERSATION_SEND_PATH_PATTERN = /^\/backend-api\/(?:[\w-]+\/)*conversation\/?$/;
 
   function getDefaultLimits() {
     return BG.defaultLimits || {};
+  }
+
+  function isConversationSendEndpoint(url) {
+    if (typeof url !== 'string' || !url) return false;
+    try {
+      const parsed = new URL(url, 'https://chatgpt.com');
+      if (parsed.hostname !== 'chatgpt.com' && parsed.hostname !== 'chat.openai.com') return false;
+      return CONVERSATION_SEND_PATH_PATTERN.test(parsed.pathname);
+    } catch {
+      return false;
+    }
   }
 
   function getCountByType(timestamps, type) {
@@ -110,7 +122,7 @@
       if (limits[canonical]) {
         const limitType = limits[canonical].type;
         const limitValue = limits[canonical].value;
-        if (limitType !== 'unlimited') {
+        if (limitType !== 'unlimited' && limitType !== 'dynamic') {
           const currentCount = getCountByType(counts[canonical].timestamps, limitType);
           if (limitValue && currentCount >= limitValue * NOTIFY_THRESHOLD) {
             const translator = BG.t || ((id) => id);
@@ -175,6 +187,7 @@
   }
 
   BG.getCountByType = getCountByType;
+  BG.isConversationSendEndpoint = isConversationSendEndpoint;
   BG.getNextResetTimestamp = getNextResetTimestamp;
   BG.getNextMonthlyResetTimestamp = getNextMonthlyResetTimestamp;
   BG.resolveCanonicalModel = resolveCanonicalModel;

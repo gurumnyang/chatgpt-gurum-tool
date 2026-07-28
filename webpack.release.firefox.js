@@ -14,6 +14,7 @@ module.exports = {
     background: './background.js',
     content: './content.js',
     popup: './popup.js',
+    'conversation-snapshot': './conversation-snapshot.js',
     'fetch-hook': './fetch-hook.js',
     'timestamp-injector': './timestamp-injector.js',
     'token-calculator': './token-calculator.js',

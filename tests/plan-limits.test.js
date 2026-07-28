@@ -100,6 +100,62 @@ test('packaged plan-limits document is accepted by the runtime validator', () =>
   assert.equal(harness.validate(packagedDocument), true);
 });
 
+test('active and legacy GPT models preserve limits and display order', () => {
+  assert.equal(packagedDocument.version, '2026-07-28.1');
+  assert.equal(packagedDocument.plans.free['gpt-5-6-sol'], undefined);
+  assert.equal(packagedDocument.plans.free['gpt-5-5-instant'].type, 'dynamic');
+  assert.equal(packagedDocument.plans.go['gpt-5-6-sol'], undefined);
+  assert.equal(packagedDocument.plans.go['gpt-5-5-instant'].value, 160);
+  assert.equal(packagedDocument.plans.go['gpt-5-3-instant'].value, 160);
+  assert.equal(packagedDocument.plans.go['gpt-5-5-thinking'].value, 10);
+  for (const plan of ['plus', 'team']) {
+    const sol = packagedDocument.plans[plan]['gpt-5-6-sol'];
+    assert.equal(sol.type, 'weekly');
+    assert.equal(sol.value, 3000);
+    assert.ok(sol.detect.includes('gpt-5-6-thinking'));
+    assert.ok(!sol.detect.includes('gpt-5-5-thinking'));
+    assert.equal(packagedDocument.plans[plan]['gpt-5-5-thinking'].value, 3000);
+  }
+  assert.equal(packagedDocument.plans.team['gpt-5-6-pro'].type, 'monthly');
+  assert.equal(packagedDocument.plans.team['gpt-5-6-pro'].value, 15);
+  assert.equal(packagedDocument.plans.team['gpt-5-5-pro'].type, 'monthly');
+  assert.equal(packagedDocument.plans.team['gpt-5-5-pro'].value, 15);
+  assert.equal(packagedDocument.plans.pro['gpt-5-6-sol'].type, 'unlimited');
+  assert.equal(packagedDocument.plans.pro['gpt-5-6-pro'].type, 'unlimited');
+  assert.equal(packagedDocument.plans.pro['gpt-5-5-thinking'].type, 'unlimited');
+  assert.equal(packagedDocument.plans.pro['gpt-5-5-pro'].type, 'unlimited');
+  const deepResearchLimits = { free: 5, go: 5, plus: 25, team: 25, pro: 250 };
+  for (const [plan, value] of Object.entries(deepResearchLimits)) {
+    assert.equal(packagedDocument.plans[plan]['deep-research'].type, 'monthly');
+    assert.equal(packagedDocument.plans[plan]['deep-research'].value, value);
+  }
+  assert.equal(packagedDocument.plans.pro['gpt-4-5'], undefined);
+  for (const plan of Object.values(packagedDocument.plans)) {
+    assert.equal(plan['gpt-5-t-mini'], undefined);
+    assert.equal(plan['gpt-5-4-thinking'], undefined);
+    assert.equal(plan['gpt-5-4-pro'], undefined);
+  }
+
+  assert.deepEqual(Object.keys(packagedDocument.plans.plus), [
+    'gpt-5-5-instant',
+    'gpt-5-6-sol',
+    'gpt-5-3-instant',
+    'gpt-5-5-thinking',
+    'o3',
+    'deep-research',
+  ]);
+  assert.deepEqual(Object.keys(packagedDocument.plans.team), [
+    'gpt-5-5-instant',
+    'gpt-5-6-sol',
+    'gpt-5-6-pro',
+    'gpt-5-3-instant',
+    'gpt-5-5-thinking',
+    'gpt-5-5-pro',
+    'o3',
+    'deep-research',
+  ]);
+});
+
 test('validator accepts a future model with a safe canonical key', () => {
   const candidate = structuredClone(packagedDocument);
   candidate.plans.plus['gpt-6-preview'] = {
@@ -167,16 +223,45 @@ test('validator rejects unsafe or malformed remote configuration', async (t) => 
   }
 });
 
-test('last-known-good storage wins without fetching the packaged document', async () => {
+test('dated last-known-good storage wins over an older packaged document', async () => {
   const harness = createLimitsHarness();
   const lkg = structuredClone(packagedDocument.plans);
-  lkg.free['deep-research'].value = 7;
+  lkg.plus.o3.value = 101;
   harness.setStorage('planLimitsAll', lkg);
+  harness.setStorage('planLimitsUpdatedAt', '2026-08-01T00:00:00Z');
+  harness.enqueueFetch(packagedDocument);
 
   const limits = await harness.evaluate('self.__GURUM_BG__.getPlanLimitsTemplate()');
 
-  assert.equal(limits.free['deep-research'].value, 7);
-  assert.equal(harness.evaluate('__fetchCalls.length'), 0);
+  assert.equal(limits.plus.o3.value, 101);
+});
+
+test('legacy storage without recency metadata cannot downgrade the packaged policy', async () => {
+  const harness = createLimitsHarness();
+  const legacy = structuredClone(packagedDocument.plans);
+  delete legacy.plus['gpt-5-6-sol'];
+  harness.setStorage('planLimitsAll', legacy);
+  harness.enqueueFetch(packagedDocument);
+
+  const limits = await harness.evaluate('self.__GURUM_BG__.getPlanLimitsTemplate()');
+
+  assert.equal(limits.plus['gpt-5-6-sol'].type, 'weekly');
+});
+
+test('remote sync cannot replace a newer packaged policy with an older remote document', async () => {
+  const harness = createLimitsHarness();
+  const oldRemote = structuredClone(packagedDocument);
+  oldRemote.version = '2026-05-28';
+  oldRemote.updatedAt = '2026-05-28T00:00:00Z';
+  delete oldRemote.plans.plus['gpt-5-6-sol'];
+  harness.enqueueFetch(oldRemote);
+  harness.enqueueFetch(packagedDocument);
+
+  const result = await harness.evaluate('self.__GURUM_BG__.refreshPlanLimitsFromRemote("plus")');
+
+  assert.equal(result.version, '2026-07-28.1');
+  assert.equal(harness.evaluate('__storage.limits["gpt-5-6-sol"].type'), 'weekly');
+  assert.equal(harness.evaluate('__storage.planLimitsUpdatedAt'), '2026-07-28T12:00:00Z');
 });
 
 test('invalid storage falls back to the validated packaged document', async () => {
@@ -186,7 +271,7 @@ test('invalid storage falls back to the validated packaged document', async () =
 
   const limits = await harness.evaluate('self.__GURUM_BG__.getPlanLimitsTemplate()');
 
-  assert.equal(limits.plus['gpt-5-5-thinking'].value, 3000);
+  assert.equal(limits.plus['gpt-5-6-sol'].type, 'weekly');
   assert.deepEqual(Array.from(harness.evaluate('__fetchCalls')), [
     'chrome-extension://test/config/plan-limits.json',
   ]);
@@ -199,6 +284,7 @@ test('invalid packaged data falls back to built-in safe defaults', async () => {
 
   const limits = await harness.evaluate('self.__GURUM_BG__.getPlanLimitsTemplate()');
 
-  assert.equal(limits.free['gpt-5'].displayName, 'GPT-5');
+  assert.equal(limits.free['gpt-5-5-instant'].displayName, 'GPT-5.5 Instant');
+  assert.equal(limits.free['deep-research'].type, 'monthly');
   assert.equal(limits.free['deep-research'].value, 5);
 });

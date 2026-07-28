@@ -1,63 +1,109 @@
 {
-  "version": "2026-05-28",
-  "updatedAt": "2026-05-28T00:00:00Z",
+  "version": "2026-07-28.1",
+  "updatedAt": "2026-07-28T12:00:00Z",
   "plans": {
     "free": {
       "gpt-5-5-instant": {
-        "type": "fiveHour",
-        "value": 10,
+        "type": "dynamic",
+        "value": null,
         "displayName": "GPT-5.5 Instant",
         "detect": ["auto", "gpt-5.5", "gpt-5.5-instant", "gpt-5-5", "gpt-5-5-instant"]
       },
+      "deep-research": { "type": "monthly", "value": 5, "displayName": "Deep Research" }
+    },
+    "go": {
+      "gpt-5-5-instant": {
+        "type": "threeHour",
+        "value": 160,
+        "displayName": "GPT-5.5 Instant",
+        "detect": ["auto", "gpt-5.5", "gpt-5.5-instant", "gpt-5-5", "gpt-5-5-instant"]
+      },
+      "gpt-5-3-instant": {
+        "type": "threeHour",
+        "value": 160,
+        "displayName": "GPT-5.3 Instant",
+        "detect": ["gpt-5.3", "gpt-5.3-instant", "gpt-5-3", "gpt-5-3-instant"]
+      },
       "gpt-5-5-thinking": {
-        "type": "daily",
-        "value": 1,
+        "type": "fiveHour",
+        "value": 10,
         "displayName": "GPT-5.5 Thinking",
         "detect": ["gpt-5.5-thinking", "gpt-5-5-thinking"]
       },
       "deep-research": { "type": "monthly", "value": 5, "displayName": "Deep Research" }
     },
     "plus": {
-      "o3": { "type": "weekly", "value": 100, "displayName": "o3", "detect": ["o3"] },
       "gpt-5-5-instant": {
         "type": "threeHour",
         "value": 160,
         "displayName": "GPT-5.5 Instant",
         "detect": ["gpt-5.5", "gpt-5.5-instant", "gpt-5-5", "gpt-5-5-instant"]
       },
+      "gpt-5-6-sol": {
+        "type": "weekly",
+        "value": 3000,
+        "displayName": "GPT-5.6 Sol",
+        "detect": [
+          "gpt-5.6",
+          "gpt-5-6",
+          "gpt-5.6-sol",
+          "gpt-5-6-sol",
+          "gpt-5.6-thinking",
+          "gpt-5-6-thinking"
+        ]
+      },
+      "gpt-5-3-instant": {
+        "type": "threeHour",
+        "value": 160,
+        "displayName": "GPT-5.3 Instant",
+        "detect": ["gpt-5.3", "gpt-5.3-instant", "gpt-5-3", "gpt-5-3-instant"]
+      },
       "gpt-5-5-thinking": {
         "type": "weekly",
         "value": 3000,
         "displayName": "GPT-5.5 Thinking",
         "detect": ["gpt-5.5-thinking", "gpt-5-5-thinking"]
       },
-      "gpt-5-t-mini": {
-        "type": "weekly",
-        "value": 2800,
-        "displayName": "GPT-5 Thinking mini",
-        "detect": ["gpt-5-t-mini"]
-      },
+      "o3": { "type": "weekly", "value": 100, "displayName": "o3", "detect": ["o3"] },
       "deep-research": { "type": "monthly", "value": 25, "displayName": "Deep Research" }
     },
     "team": {
-      "o3": { "type": "daily", "value": 300, "displayName": "o3", "detect": ["o3"] },
       "gpt-5-5-instant": {
         "type": "unlimited",
         "value": null,
         "displayName": "GPT-5.5 Instant",
         "detect": ["gpt-5.5", "gpt-5.5-instant", "gpt-5-5", "gpt-5-5-instant"]
       },
+      "gpt-5-6-sol": {
+        "type": "weekly",
+        "value": 3000,
+        "displayName": "GPT-5.6 Sol",
+        "detect": [
+          "gpt-5.6",
+          "gpt-5-6",
+          "gpt-5.6-sol",
+          "gpt-5-6-sol",
+          "gpt-5.6-thinking",
+          "gpt-5-6-thinking"
+        ]
+      },
+      "gpt-5-6-pro": {
+        "type": "monthly",
+        "value": 15,
+        "displayName": "GPT-5.6 Sol Pro",
+        "detect": ["gpt-5.6-pro", "gpt-5-6-pro"]
+      },
+      "gpt-5-3-instant": {
+        "type": "unlimited",
+        "value": null,
+        "displayName": "GPT-5.3 Instant",
+        "detect": ["gpt-5.3", "gpt-5.3-instant", "gpt-5-3", "gpt-5-3-instant"]
+      },
       "gpt-5-5-thinking": {
         "type": "weekly",
         "value": 3000,
         "displayName": "GPT-5.5 Thinking",
         "detect": ["gpt-5.5-thinking", "gpt-5-5-thinking"]
-      },
-      "gpt-5-t-mini": {
-        "type": "weekly",
-        "value": 2800,
-        "displayName": "GPT-5 Thinking mini",
-        "detect": ["gpt-5-t-mini"]
       },
       "gpt-5-5-pro": {
         "type": "monthly",
@@ -65,21 +111,40 @@
         "displayName": "GPT-5.5 Pro",
         "detect": ["gpt-5.5-pro", "gpt-5-5-pro"]
       },
+      "o3": { "type": "daily", "value": 300, "displayName": "o3", "detect": ["o3"] },
       "deep-research": { "type": "monthly", "value": 25, "displayName": "Deep Research" }
     },
     "pro": {
-      "gpt-4-5": {
-        "type": "unlimited",
-        "value": null,
-        "displayName": "GPT-4.5",
-        "detect": ["gpt-4-5"]
-      },
-      "o3": { "type": "unlimited", "value": null, "displayName": "o3", "detect": ["o3"] },
       "gpt-5-5-instant": {
         "type": "unlimited",
         "value": null,
         "displayName": "GPT-5.5 Instant",
         "detect": ["gpt-5.5", "gpt-5.5-instant", "gpt-5-5", "gpt-5-5-instant"]
+      },
+      "gpt-5-6-sol": {
+        "type": "unlimited",
+        "value": null,
+        "displayName": "GPT-5.6 Sol",
+        "detect": [
+          "gpt-5.6",
+          "gpt-5-6",
+          "gpt-5.6-sol",
+          "gpt-5-6-sol",
+          "gpt-5.6-thinking",
+          "gpt-5-6-thinking"
+        ]
+      },
+      "gpt-5-6-pro": {
+        "type": "unlimited",
+        "value": null,
+        "displayName": "GPT-5.6 Sol Pro",
+        "detect": ["gpt-5.6-pro", "gpt-5-6-pro"]
+      },
+      "gpt-5-3-instant": {
+        "type": "unlimited",
+        "value": null,
+        "displayName": "GPT-5.3 Instant",
+        "detect": ["gpt-5.3", "gpt-5.3-instant", "gpt-5-3", "gpt-5-3-instant"]
       },
       "gpt-5-5-thinking": {
         "type": "unlimited",
@@ -87,19 +152,13 @@
         "displayName": "GPT-5.5 Thinking",
         "detect": ["gpt-5.5-thinking", "gpt-5-5-thinking"]
       },
-      "gpt-5-t-mini": {
-        "type": "unlimited",
-        "value": null,
-        "displayName": "GPT-5 Thinking mini",
-        "detect": ["gpt-5-t-mini"]
-      },
       "gpt-5-5-pro": {
         "type": "unlimited",
         "value": null,
         "displayName": "GPT-5.5 Pro",
         "detect": ["gpt-5.5-pro", "gpt-5-5-pro"]
       },
-      
+      "o3": { "type": "unlimited", "value": null, "displayName": "o3", "detect": ["o3"] },
       "deep-research": { "type": "monthly", "value": 250, "displayName": "Deep Research" }
     }
   }

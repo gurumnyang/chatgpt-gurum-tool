@@ -16,10 +16,10 @@ const {
   isValidDeepResearchCount,
   isAllowedPlan,
   parseDeepResearchResetTimestamp,
-  getNextMonthlyResetTimestamp,
   updateModelUsageWithWorkspace,
   updateBadge,
   cleanupOldData,
+  isConversationSendEndpoint,
   bgLoadLocaleDict,
   migrateModelAliases,
   migrateO4MiniHigh,
@@ -106,13 +106,14 @@ chrome.runtime.onInstalled.addListener((details) => {
         const initialDr = {
           remaining: '-',
           total: drTotal,
-          resetAt: getNextMonthlyResetTimestamp(),
+          resetAt: null,
         };
         await chrome.storage.local.set({
           usageCounts: {},
           limits: planLimitsTemplate[currentPlan] || defaultLimits[currentPlan],
           currentPlan: currentPlan,
           deepResearch: initialDr,
+          imageGeneration: { remaining: '-', resetAt: null },
         });
       }
     } catch (error) {
@@ -184,8 +185,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     try {
       const { remaining, reset_after } = message.info;
-      const resetAt = parseDeepResearchResetTimestamp(reset_after);
-      if (!isValidDeepResearchCount(remaining) || resetAt === null) {
+      const hasReset = reset_after !== null && reset_after !== undefined && reset_after !== '';
+      const resetAt = hasReset ? parseDeepResearchResetTimestamp(reset_after) : null;
+      if (!isValidDeepResearchCount(remaining) || (hasReset && resetAt === null)) {
         console.warn('유효하지 않은 Deep Research 정보 무시:', message.info);
         sendResponse({ status: 'invalid' });
         return false;
@@ -205,7 +207,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         const tmpl = data.planLimitsAll || (await getPlanLimitsTemplate());
         const def = tmpl[plan] && tmpl[plan]['deep-research'];
-        dr.total = def && def.value != null ? def.value : dr.total || '?';
+        dr.total = def && def.value != null ? def.value : '?';
+        dr.updatedAt = Date.now();
 
         await chrome.storage.local.set({ deepResearch: dr });
         console.log('💾 Deep Research 정보 저장 완료 (fetch hook):', dr);
@@ -222,6 +225,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     } catch (error) {
       console.error('❌ Deep Research 정보 처리 실패:', error);
+      sendResponse({ status: 'error' });
+      return false;
+    }
+  }
+
+  if (message.type === 'image_generation_info' && message.info) {
+    try {
+      const { remaining, reset_after } = message.info;
+      const hasReset = reset_after !== null && reset_after !== undefined && reset_after !== '';
+      const resetAt = hasReset ? parseDeepResearchResetTimestamp(reset_after) : null;
+      if (!isValidDeepResearchCount(remaining) || (hasReset && resetAt === null)) {
+        sendResponse({ status: 'invalid' });
+        return false;
+      }
+
+      (async () => {
+        await chrome.storage.local.set({
+          imageGeneration: {
+            remaining,
+            resetAt,
+            updatedAt: Date.now(),
+          },
+        });
+        sendResponse({ status: 'ok' });
+      })().catch((error) => {
+        console.warn('Image Generation 잔여량 저장 실패:', error);
+        sendResponse({ status: 'error' });
+      });
+      return true;
+    } catch (error) {
+      console.warn('Image Generation 정보 처리 실패:', error);
       sendResponse({ status: 'error' });
       return false;
     }
@@ -251,8 +285,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const plan = isAllowedPlan(data.currentPlan) ? data.currentPlan : 'free';
         const tmpl = data.planLimitsAll || (await getPlanLimitsTemplate());
         const def = tmpl[plan] && tmpl[plan]['deep-research'];
-        dr.total = def && def.value != null ? def.value : dr.total;
+        dr.total = def && def.value != null ? def.value : '?';
         if (resetAt !== null) dr.resetAt = resetAt;
+        dr.updatedAt = Date.now();
         await chrome.storage.local.set({ deepResearch: dr });
         sendResponse({ status: 'ok' });
       } catch (error) {
@@ -277,8 +312,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const oldDr = data2.deepResearch || {};
         const dr = {
           remaining: oldDr.remaining ?? '-',
-          total: newLimits['deep-research']?.value ?? '-',
-          resetAt: oldDr.resetAt ?? getNextMonthlyResetTimestamp(),
+          total: newLimits['deep-research']?.value ?? '?',
+          resetAt: parseDeepResearchResetTimestamp(oldDr.resetAt),
         };
         await chrome.storage.local.set({ limits: newLimits, currentPlan, deepResearch: dr });
         sendResponse({ status: 'ok' });
@@ -319,9 +354,7 @@ try {
     async (details) => {
       try {
         if (details.method !== 'POST') return;
-        const u = details.url || '';
-        const test = new URL(u).pathname;
-        if (!/^\/backend-api\/(?:f\/)?conversation(?:\/)?$/.test(test)) return;
+        if (!isConversationSendEndpoint(details.url)) return;
 
         const rb = details.requestBody;
         let bodyText = '';

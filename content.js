@@ -6,8 +6,10 @@ const SCROLL_CONTROLS_STYLE_ID = 'gurum-scroll-controls-style';
 const PAGE_BRIDGE_CHANNEL = 'chatgpt-gurum-tool';
 const PAGE_BRIDGE_VERSION = 1;
 const PAGE_BRIDGE_REQUEST_TIMEOUT = 2000;
+const SNAPSHOT_REQUEST_TIMEOUT = 10_000;
 const PAGE_BRIDGE_MAX_TEXT_LENGTH = 5_000_000;
 const PAGE_BRIDGE_MAX_TOKEN_COUNT = 1_000_000_000;
+const PAGE_BRIDGE_MAX_MESSAGES = 50_000;
 const hoverToolbarModule = window.GurumHoverToolbar || {};
 const initializeHoverToolbar =
   typeof hoverToolbarModule.initializeHoverToolbar === 'function'
@@ -86,7 +88,11 @@ function sanitizeDeepResearchInfo(info) {
       : typeof info.reset_after === 'number' && Number.isFinite(info.reset_after)
         ? info.reset_after
         : null;
-  if (resetAfter === null) return null;
+  const sanitized = {
+    feature_name: 'deep_research',
+    remaining,
+  };
+  if (resetAfter === null) return sanitized;
 
   let resetMs =
     typeof resetAfter === 'number' && resetAfter < 1e11 ? resetAfter * 1000 : resetAfter;
@@ -95,11 +101,49 @@ function sanitizeDeepResearchInfo(info) {
   const maxResetMs = Date.UTC(2100, 0, 1);
   if (!Number.isFinite(resetMs) || resetMs < minResetMs || resetMs > maxResetMs) return null;
 
-  return {
-    feature_name: 'deep_research',
+  sanitized.reset_after = new Date(resetMs).toISOString();
+  return sanitized;
+}
+
+function sanitizeImageGenerationInfo(info) {
+  if (!info || typeof info !== 'object' || Array.isArray(info)) return null;
+  if (!['image_gen', 'image_generation'].includes(info.feature_name)) return null;
+
+  const remaining = Number(info.remaining);
+  if (!Number.isSafeInteger(remaining) || remaining < 0 || remaining > 100_000) return null;
+
+  const resetAfter =
+    typeof info.reset_after === 'string' && info.reset_after.length <= 128
+      ? info.reset_after
+      : typeof info.reset_after === 'number' && Number.isFinite(info.reset_after)
+        ? info.reset_after
+        : null;
+  const sanitized = {
+    feature_name: 'image_gen',
     remaining,
-    reset_after: new Date(resetMs).toISOString(),
   };
+  if (resetAfter === null) return sanitized;
+
+  let resetMs =
+    typeof resetAfter === 'number' && resetAfter < 1e11 ? resetAfter * 1000 : resetAfter;
+  resetMs = new Date(resetMs).getTime();
+  const minResetMs = Date.UTC(2020, 0, 1);
+  const maxResetMs = Date.UTC(2100, 0, 1);
+  if (!Number.isFinite(resetMs) || resetMs < minResetMs || resetMs > maxResetMs) return null;
+
+  sanitized.reset_after = new Date(resetMs).toISOString();
+  return sanitized;
+}
+
+function getCurrentConversationId() {
+  const match = window.location.pathname.match(/\/c\/([^/]+)/);
+  if (!match) return null;
+  try {
+    const value = decodeURIComponent(match[1]);
+    return value.length > 0 && value.length <= 256 ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function onDocumentReady(callback) {
@@ -171,28 +215,6 @@ function createScrollControls() {
   const container = document.createElement('div');
   container.id = SCROLL_CONTROLS_ID;
 
-  // 스크롤 대상 엘리먼트 탐색 헬퍼
-  // ChatGPT UI는 tailwind 유틸 클래스 조합을 사용하므로 overflow-y-auto 를 기준으로 가장 적절한 flex column 컨테이너를 선택
-  function getScrollTarget() {
-    // 가장 먼저 명시적으로 overflow-y-auto 가 포함된 div 후보 수집
-    const candidates = Array.from(document.querySelectorAll('div[class*="overflow-y-auto"]') || []);
-    // 우선순위: flex + flex-col + h-full
-    const fullMatch = candidates.find((el) => {
-      const cls = el.className || '';
-      return (
-        cls.includes('overflow-y-auto') &&
-        cls.includes('flex') &&
-        cls.includes('flex-col') &&
-        (cls.includes('h-full') || cls.includes('h-screen'))
-      );
-    });
-    if (fullMatch) return fullMatch;
-    // 차선: overflow-y-auto 만 있는 첫 번째
-    if (candidates.length) return candidates[0];
-    // 폴백: 문서 기본 스크롤 요소
-    return document.scrollingElement || document.documentElement || document.body;
-  }
-
   const upButton = document.createElement('button');
   upButton.setAttribute('aria-label', '맨 위로 이동');
   upButton.innerHTML = `
@@ -232,6 +254,27 @@ function createScrollControls() {
   document.body.appendChild(container);
 }
 
+// ChatGPT가 명시한 대화 스크롤 루트를 우선해 사이드바의 overflow 컨테이너가
+// 선택되지 않게 한다. 이전 DOM을 위한 class/document 폴백은 그대로 유지한다.
+function getScrollTarget() {
+  const scrollRoot = document.querySelector('[data-scroll-root]');
+  if (scrollRoot) return scrollRoot;
+
+  const candidates = Array.from(document.querySelectorAll('div[class*="overflow-y-auto"]') || []);
+  const fullMatch = candidates.find((el) => {
+    const cls = el.className || '';
+    return (
+      cls.includes('overflow-y-auto') &&
+      cls.includes('flex') &&
+      cls.includes('flex-col') &&
+      (cls.includes('h-full') || cls.includes('h-screen'))
+    );
+  });
+  if (fullMatch) return fullMatch;
+  if (candidates.length) return candidates[0];
+  return document.scrollingElement || document.documentElement || document.body;
+}
+
 // tiktoken 라이브러리 로드 (페이지에 주입)
 function injectTiktokenLibrary() {
   const tiktokenBundleScript = document.createElement('script');
@@ -262,18 +305,34 @@ function injectTiktokenLibrary() {
 
 // API 요청 가로채기를 위한 스크립트 주입 함수
 function injectAPIHooks() {
-  // fetch-hook.js 주입
-  const fetchHook = document.createElement('script');
-  fetchHook.src = chrome.runtime.getURL('fetch-hook.js');
-  fetchHook.onload = function () {
-    console.log('✅ Fetch 후킹 스크립트 로드 완료');
+  const parent = document.head || document.documentElement;
+  const injectFetchHook = () => {
+    const fetchHook = document.createElement('script');
+    fetchHook.src = chrome.runtime.getURL('fetch-hook.js');
+    fetchHook.async = false;
+    fetchHook.onload = function () {
+      console.log('✅ Fetch 후킹 스크립트 로드 완료');
+      this.remove();
+    };
+    fetchHook.onerror = function (error) {
+      console.error('❌ Fetch 후킹 스크립트 로드 실패:', error);
+    };
+    parent.appendChild(fetchHook);
+  };
+
+  const snapshotHelper = document.createElement('script');
+  snapshotHelper.src = chrome.runtime.getURL('conversation-snapshot.js');
+  snapshotHelper.async = false;
+  snapshotHelper.onload = function () {
     this.remove();
+    injectFetchHook();
   };
-  fetchHook.onerror = function (error) {
-    console.error('❌ Fetch 후킹 스크립트 로드 실패:', error);
+  snapshotHelper.onerror = function () {
+    this.remove();
+    // 스냅샷 헬퍼가 없어도 기존 API 기능은 계속 동작한다.
+    injectFetchHook();
   };
-  // 페이지에 스크립트 태그 추가
-  (document.head || document.documentElement).appendChild(fetchHook);
+  parent.appendChild(snapshotHelper);
 }
 
 // 메시지 타임스탬프 표시 스크립트 주입 및 토글
@@ -448,6 +507,14 @@ window.addEventListener('message', (event) => {
       info,
     });
   }
+  if (isPageBridgeMessage(data, 'CHATGPT_TOOL_IMAGE_GENERATION_INFO')) {
+    const info = sanitizeImageGenerationInfo(data.info);
+    if (!info) return;
+    safeSendMessage({
+      type: 'image_generation_info',
+      info,
+    });
+  }
   // 참고: 토큰 계산 결과는 이제 calculateContextSize 내에서 직접 처리됨
 });
 
@@ -549,8 +616,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
     if (message.type === 'exportConversation') {
-      const conv = extractConversation(message.startId, message.endId);
-      sendResponse({ conv });
+      requestConversationSnapshot()
+        .then((snapshot) => {
+          const conversation = snapshot ? snapshot.messages : extractCompleteDomConversation();
+          if (!conversation) throw new Error('전체 세션 스냅샷을 가져오지 못했습니다.');
+          sendResponse({
+            conv: filterConversationRange(conversation, message.startId, message.endId),
+            source: snapshot ? 'conversation_api' : 'rendered_dom_fallback',
+          });
+        })
+        .catch((error) => sendResponse({ error: error.message }));
       return true;
     }
 
@@ -568,104 +643,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.type === 'getContextTokens') {
       const model = message.model || 'gpt-4o';
-      // 대화 내용 가져오기
-      const conversation = extractConversation();
-      let text = '';
-      conversation.forEach((msg) => {
-        text += msg.content + '\n';
-      });
-
-      // 고유한 메시지 ID 생성 (여러 요청 구분용)
-      const requestId = createPageBridgeRequestId();
-      let settled = false;
-
-      const cleanup = () => {
-        window.removeEventListener('message', responseListener);
-        clearTimeout(timeoutId);
-      };
-
-      // 한 번만 실행되는 응답 리스너
-      const responseListener = function (event) {
-        if (event.source !== window) return;
-        const data = event.data;
-
-        if (isValidTokenResponse(data, 'CHATGPT_TOOL_TOKEN_COUNT_RESPONSE', requestId)) {
-          settled = true;
-          cleanup();
-
-          // 결과 반환
-          sendResponse({
-            tokens: data.tokens,
-            chars: data.chars,
-            success: data.success,
-          });
-        }
-      };
-      const timeoutId = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        sendResponse({ error: '토큰 계산 응답 시간이 초과되었습니다.' });
-      }, PAGE_BRIDGE_REQUEST_TIMEOUT);
-
-      // 응답 리스너 등록
-      window.addEventListener('message', responseListener);
-
-      // 토큰 계산 요청 메시지 전송
-      window.postMessage(
-        createPageBridgeMessage('CALCULATE_TOKEN_COUNT', {
-          text: text,
-          model: model,
-          requestId: requestId,
-        }),
-        '*',
-      );
-
-      return true; // 비동기 응답을 위해 true 반환
+      requestConversationSnapshot()
+        .then((snapshot) => {
+          const fallbackConversation = snapshot ? null : extractCompleteDomConversation();
+          if (!snapshot && !fallbackConversation) {
+            throw new Error('전체 세션 스냅샷을 가져오지 못했습니다.');
+          }
+          const text = snapshot
+            ? snapshot.text
+            : fallbackConversation.map((item) => item.content).join('');
+          return requestPageTokenCount(
+            text,
+            model,
+            'CALCULATE_TOKEN_COUNT',
+            'CHATGPT_TOOL_TOKEN_COUNT_RESPONSE',
+          );
+        })
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ error: error.message }));
+      return true;
     }
   } catch (error) {
     console.error('🚨 메시지 처리 중 오류 발생:', error);
     sendResponse({ error: error.message });
-  }
-  if (message.type === 'checkDeepResearchRemaining') {
-    try {
-      // Deep Research 버튼 툴팁 확인 로직
-      const drButton =
-        document.querySelector("button[data-testid='deep-research-button']") ||
-        document.querySelector("button[aria-label*='deep']");
-
-      if (drButton) {
-        // 버튼에 마우스 오버하여 툴팁 표시 시도
-        drButton.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-
-        setTimeout(() => {
-          try {
-            const tooltip =
-              document.querySelector('[role="tooltip"]') || document.querySelector('.tooltip');
-
-            if (tooltip && tooltip.innerText) {
-              const match = tooltip.innerText.match(/(\d+)/);
-              if (match) {
-                const remaining = parseInt(match[1], 10);
-                sendResponse({ remaining });
-                return;
-              }
-            }
-            sendResponse({ remaining: null });
-          } catch (error) {
-            console.error('🚨 Deep Research 툴팁 처리 중 오류:', error);
-            sendResponse({ error: error.message });
-          }
-        }, 100);
-        return true; // 비동기 응답을 위해 true 반환
-      }
-      sendResponse({ remaining: null });
-      return false;
-    } catch (error) {
-      console.error('🚨 Deep Research 확인 중 오류:', error);
-      sendResponse({ error: error.message });
-      return false;
-    }
   }
   return false;
 });
@@ -694,18 +694,25 @@ function extractConversation(startId, endId) {
   const seenIds = new Set();
   let capturing = !startId;
 
-  // 새 UI에서는 article[data-testid^="conversation-turn"] 내에 메시지가 중첩됨
+  // 태그 이름은 UI 개편 때 바뀔 수 있으므로 test id만 계약으로 사용한다.
+  // 일반 turn은 기존 message id를 유지하고, wrapper가 없는 이미지 turn만 turn id로 폴백한다.
   const collected = [];
-  document.querySelectorAll('article[data-testid^="conversation-turn"]').forEach((article) => {
-    article
-      .querySelectorAll('div[data-message-author-role][data-message-id]')
-      .forEach((msg) => collected.push(msg));
+  document.querySelectorAll("[data-testid^='conversation-turn']").forEach((turn) => {
+    const messages = turn.querySelectorAll('div[data-message-author-role][data-message-id]');
+    if (messages.length) {
+      messages.forEach((message) => collected.push({ element: message, turn, wrapperless: false }));
+      return;
+    }
+
+    if (turn.getAttribute('data-turn-id') && turn.getAttribute('data-turn')) {
+      collected.push({ element: turn, turn, wrapperless: true });
+    }
   });
 
   if (!collected.length) {
     document
       .querySelectorAll('div[data-message-author-role][data-message-id]')
-      .forEach((msg) => collected.push(msg));
+      .forEach((message) => collected.push({ element: message, turn: null }));
   }
 
   if (!collected.length) return chatThread;
@@ -718,8 +725,25 @@ function extractConversation(startId, endId) {
     'data-is-only-node',
   ];
 
-  for (const msgEl of collected) {
-    const id = msgEl.getAttribute('data-message-id') || '';
+  const NOISE_SELECTOR = [
+    '.chatgpt-time-container',
+    'button',
+    'h4.sr-only',
+    '[data-testid="image-gen-overlay-actions"]',
+    '[data-testid="image-gen-overlay-left-actions"]',
+    '[data-testid="image-gen-overlay-right-actions"]',
+    '[aria-label="응답 작업"]',
+    '[role="menu"]',
+    '[role="dialog"]',
+  ].join(',');
+
+  for (const item of collected) {
+    const msgEl = item.element;
+    const id =
+      msgEl.getAttribute('data-message-id') ||
+      (item.turn && item.turn.getAttribute('data-turn-id')) ||
+      '';
+    const turnId = (item.turn && item.turn.getAttribute('data-turn-id')) || null;
     if (!id || seenIds.has(id)) continue;
 
     if (!capturing) {
@@ -727,12 +751,14 @@ function extractConversation(startId, endId) {
       else continue;
     }
 
-    let sender = msgEl.getAttribute('data-message-author-role') || '';
+    let sender =
+      msgEl.getAttribute('data-message-author-role') ||
+      (item.turn && item.turn.getAttribute('data-turn')) ||
+      '';
     if (!sender) sender = msgEl.querySelector("svg[data-icon='user']") ? 'user' : 'assistant';
 
     const cloned = msgEl.cloneNode(true);
-    cloned.querySelectorAll('.chatgpt-time-container').forEach((el) => el.remove());
-    cloned.querySelectorAll('button').forEach((btn) => btn.remove());
+    cloned.querySelectorAll(NOISE_SELECTOR).forEach((el) => el.remove());
     CLEAN_ATTRS.forEach((attr) => {
       cloned.querySelectorAll(`[${attr}]`).forEach((node) => node.removeAttribute(attr));
     });
@@ -742,18 +768,39 @@ function extractConversation(startId, endId) {
       cloned.querySelector('div.markdown') ||
       cloned.querySelector('[data-testid="markdown"]') ||
       cloned.querySelector('[data-message-content]') ||
+      cloned.querySelector('[data-conversation-screenshot-content]') ||
       cloned.querySelector('div.text-base') ||
       cloned;
 
+    const imageLines = [];
+    const seenImageSources = new Set();
+    contentEl.querySelectorAll('img').forEach((image) => {
+      const src = (image.currentSrc || image.getAttribute('src') || '').trim();
+      const alt = (image.getAttribute('alt') || '').trim();
+      const isHidden = image.getAttribute('aria-hidden') === 'true';
+      const isSafeSource =
+        /^(https?:|blob:)/i.test(src) || src.startsWith('/') || src.startsWith('./');
+      const isContentImage = Boolean(alt) || item.wrapperless === true;
+
+      if (isHidden || !isSafeSource || !isContentImage || seenImageSources.has(src)) {
+        image.remove();
+        return;
+      }
+
+      seenImageSources.add(src);
+      imageLines.push(`${alt ? `[Image: ${alt}]` : '[Image]'}\n${src}`);
+    });
+
     const html = contentEl.innerHTML.trim().replace(/\n/g, '<br>');
-    const content = contentEl.textContent.trim();
+    const textContent = contentEl.textContent.trim();
+    const content = [textContent, ...imageLines].filter(Boolean).join('\n\n');
     if (!content) {
       seenIds.add(id);
       if (endId && id === endId) break;
       continue;
     }
 
-    chatThread.push({ id, sender, html, content });
+    chatThread.push({ id, turnId, sender, html, content });
     seenIds.add(id);
 
     if (endId && id === endId) break;
@@ -761,134 +808,266 @@ function extractConversation(startId, endId) {
 
   return chatThread;
 }
+
+function sanitizeConversationSnapshot(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (
+    typeof value.text !== 'string' ||
+    value.text.length > PAGE_BRIDGE_MAX_TEXT_LENGTH ||
+    !Array.isArray(value.messages) ||
+    value.messages.length > PAGE_BRIDGE_MAX_MESSAGES ||
+    value.messageCount !== value.messages.length ||
+    value.chars !== value.text.length
+  ) {
+    return null;
+  }
+
+  const conversationId =
+    typeof value.conversationId === 'string' &&
+    value.conversationId.length > 0 &&
+    value.conversationId.length <= 256
+      ? value.conversationId
+      : null;
+  const messages = [];
+  let exportedLength = 0;
+  for (const item of value.messages) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const id =
+      typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 256 ? item.id : null;
+    const nodeId =
+      typeof item.nodeId === 'string' && item.nodeId.length > 0 && item.nodeId.length <= 256
+        ? item.nodeId
+        : id;
+    if (
+      !id ||
+      !nodeId ||
+      (item.sender !== 'user' && item.sender !== 'assistant') ||
+      typeof item.content !== 'string' ||
+      item.content.length > 500_000
+    ) {
+      return null;
+    }
+    exportedLength += item.content.length;
+    if (exportedLength > PAGE_BRIDGE_MAX_TEXT_LENGTH) return null;
+    messages.push({
+      id,
+      nodeId,
+      sender: item.sender,
+      content: item.content,
+      create_time: Number.isFinite(item.create_time) ? item.create_time : null,
+    });
+  }
+
+  return {
+    conversationId,
+    messages,
+    text: value.text,
+    chars: value.chars,
+    messageCount: value.messageCount,
+  };
+}
+
+function requestConversationSnapshot() {
+  return new Promise((resolve) => {
+    const requestId = createPageBridgeRequestId();
+    let settled = false;
+    const cleanup = () => {
+      window.removeEventListener('message', responseListener);
+      clearTimeout(timeoutId);
+    };
+    const finish = (snapshot) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(snapshot);
+    };
+    const responseListener = (event) => {
+      if (event.source !== window) return;
+      const data = event.data;
+      if (
+        !isPageBridgeMessage(data, 'GURUM_CONVERSATION_SNAPSHOT_RESPONSE') ||
+        data.requestId !== requestId
+      ) {
+        return;
+      }
+      finish(sanitizeConversationSnapshot(data.snapshot));
+    };
+    const timeoutId = setTimeout(() => finish(null), SNAPSHOT_REQUEST_TIMEOUT);
+    window.addEventListener('message', responseListener);
+    window.postMessage(
+      createPageBridgeMessage('GURUM_CONVERSATION_SNAPSHOT_REQUEST', {
+        requestId,
+        conversationId: getCurrentConversationId(),
+        domMessages: extractConversation().map(({ id, turnId, sender, content }) => ({
+          id,
+          turnId,
+          sender,
+          content,
+        })),
+      }),
+      '*',
+    );
+  });
+}
+
+function filterConversationRange(messages, startId, endId) {
+  if (!startId && !endId) return messages;
+  const filtered = [];
+  let capturing = !startId;
+  for (const message of messages) {
+    if (!capturing) {
+      if (message.id === startId || message.nodeId === startId) capturing = true;
+      else continue;
+    }
+    filtered.push(message);
+    if (endId && (message.id === endId || message.nodeId === endId)) break;
+  }
+  return filtered;
+}
+
+function extractCompleteDomConversation() {
+  const conversation = extractConversation();
+  const containerIds = new Set();
+  document.querySelectorAll('[data-turn-id-container]').forEach((element) => {
+    const id = element.getAttribute('data-turn-id-container');
+    if (id) containerIds.add(id);
+  });
+  if (!containerIds.size) return conversation;
+
+  const mountedTurnIds = new Set();
+  document.querySelectorAll("[data-testid^='conversation-turn']").forEach((element) => {
+    const id =
+      element.getAttribute('data-turn-id') || element.getAttribute('data-turn-id-container');
+    if (id) mountedTurnIds.add(id);
+  });
+
+  // ChatGPT는 root/숨김 노드 하나를 section 없이 유지할 수 있다.
+  return containerIds.size <= mountedTurnIds.size + 1 ? conversation : null;
+}
+
 // 전역 참조를 위해 window에 할당
 window.CONTEXT_MEASUREMENT = {
   lastMeasureTime: 0, // 마지막 측정 시간
   measureInterval: 3000, // 측정 간격 (ms)
   lastResult: null, // 마지막 측정 결과 캐싱
-  messageCountAtLastMeasure: 0, // 마지막 측정 시 메시지 수
+  signatureAtLastMeasure: '', // 마지막 측정 시 대화 서명
   inProgress: false, // 측정 진행 중 여부
   contextLimits: {
-    free: 8192, // Free 플랜: 8K 토큰
-    plus: 32768, // Plus 플랜: 32K 토큰
-    team: 32768, // Team 플랜: Plus와 동일 기본 32K로 가정
-    pro: 131072, // Pro 플랜: 128K 토큰
+    free: 27000, // Free 플랜: 27K 토큰
+    go: 54000, // Go 플랜: 54K 토큰
+    plus: 54000, // Plus 플랜: 54K 토큰
+    team: 32768, // Business 내부 plan slug는 team을 유지
+    pro: 128000, // Pro 플랜: 128K 토큰
   },
 };
 
-function calculateContextSize() {
+function requestPageTokenCount(text, model, requestType, responseType) {
   return new Promise((resolve) => {
-    const now = Date.now();
-    const conversation = extractConversation();
-
-    // 플랜 정보 가져오기 (storage에서)
-    chrome.storage.local.get('currentPlan', (data) => {
-      const currentPlan = data.currentPlan || 'free';
-
-      // 최적화: 이전 결과 재활용 조건 체크
-      // 1. 마지막 측정으로부터 일정 시간이 지나지 않았고
-      // 2. 측정 이후 메시지 수가 변하지 않았으면
-      // 3. 캐시된 마지막 결과가 있으면
-      if (
-        now - window.CONTEXT_MEASUREMENT.lastMeasureTime <
-          window.CONTEXT_MEASUREMENT.measureInterval &&
-        conversation.length === window.CONTEXT_MEASUREMENT.messageCountAtLastMeasure &&
-        window.CONTEXT_MEASUREMENT.lastResult
-      ) {
-        // 플랜이 변경되었을 수 있으므로, 한도 정보만 업데이트
-        const cachedResult = { ...window.CONTEXT_MEASUREMENT.lastResult };
-        cachedResult.contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
-
-        return resolve(cachedResult);
-      }
-
-      // 중복 측정 방지
-      if (window.CONTEXT_MEASUREMENT.inProgress) {
-        return resolve(
-          window.CONTEXT_MEASUREMENT.lastResult || {
-            chars: 0,
-            tokens: 0,
-            text: '',
-            pending: true,
-          },
-        );
-      }
-
-      window.CONTEXT_MEASUREMENT.inProgress = true;
-
-      // 대화 내용 추출
-      let text = '';
-      conversation.forEach((msg) => {
-        text += msg.content;
+    const requestId = createPageBridgeRequestId();
+    let settled = false;
+    const cleanup = () => {
+      window.removeEventListener('message', responseListener);
+      clearTimeout(timeoutId);
+    };
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const responseListener = (event) => {
+      if (event.source !== window) return;
+      const data = event.data;
+      if (!isValidTokenResponse(data, responseType, requestId)) return;
+      finish({
+        chars: data.chars,
+        tokens: data.tokens,
+        success: data.success,
       });
-      // 대화 내용 수집 완료
-
-      // 문자 길이 계산
-      const chars = text.length;
-      const requestId = createPageBridgeRequestId();
-      // 응답 대기 타임아웃 (1.5초 후 기본값 반환)
-      const timeoutId = setTimeout(() => {
-        window.removeEventListener('message', responseListener);
-        // 토큰 계산 타임아웃, 근사치 사용
-        const contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
-        const result = {
-          chars,
-          tokens: Math.ceil(chars * 0.25),
-          text,
-          contextLimit: contextLimit,
-        };
-
-        // 결과 캐싱
-        window.CONTEXT_MEASUREMENT.lastResult = result;
-        window.CONTEXT_MEASUREMENT.lastMeasureTime = now;
-        window.CONTEXT_MEASUREMENT.messageCountAtLastMeasure = conversation.length;
-        window.CONTEXT_MEASUREMENT.inProgress = false;
-
-        resolve(result);
-      }, 1500);
-
-      // 웹페이지 응답 수신용 리스너
-      const responseListener = function (event) {
-        if (event.source !== window) return;
-        const data = event.data;
-
-        if (isValidTokenResponse(data, 'CHATGPT_TOOL_CONTEXT_TOKENS', requestId)) {
-          // 리스너 제거 및 타임아웃 취소
-          window.removeEventListener('message', responseListener);
-          clearTimeout(timeoutId);
-
-          // 정확한 토큰 계산값 수신
-          const contextLimit = window.CONTEXT_MEASUREMENT.contextLimits[currentPlan];
-          const result = {
-            chars: data.chars,
-            tokens: data.tokens,
-            text: text,
-            success: data.success,
-            contextLimit: contextLimit,
-          };
-          // 결과 캐싱
-          window.CONTEXT_MEASUREMENT.lastResult = result;
-          window.CONTEXT_MEASUREMENT.lastMeasureTime = now;
-          window.CONTEXT_MEASUREMENT.messageCountAtLastMeasure = conversation.length;
-          window.CONTEXT_MEASUREMENT.inProgress = false;
-
-          resolve(result);
-        }
-      };
-
-      // 응답 리스너 등록
-      window.addEventListener('message', responseListener);
-
-      // 웹페이지에 메시지 전송하여 토큰 계산 요청
-      window.postMessage(
-        createPageBridgeMessage('CALCULATE_CONTEXT_SIZE', {
-          text: text,
-          model: 'gpt-4o',
-          chars: chars,
-          requestId,
+    };
+    const timeoutId = setTimeout(
+      () =>
+        finish({
+          chars: text.length,
+          tokens: Math.ceil(text.length * 0.25),
+          success: false,
         }),
-        '*',
-      );
-    });
+      PAGE_BRIDGE_REQUEST_TIMEOUT,
+    );
+    window.addEventListener('message', responseListener);
+    window.postMessage(
+      createPageBridgeMessage(requestType, {
+        text,
+        model,
+        chars: text.length,
+        requestId,
+      }),
+      '*',
+    );
   });
+}
+
+async function calculateContextSize() {
+  const now = Date.now();
+  const snapshot = await requestConversationSnapshot();
+  const fallbackConversation = snapshot ? [] : extractCompleteDomConversation();
+  if (!snapshot && !fallbackConversation) {
+    throw new Error('전체 세션 스냅샷을 가져오지 못했습니다.');
+  }
+  const text = snapshot
+    ? snapshot.text
+    : fallbackConversation.map((message) => message.content).join('');
+  const messageCount = snapshot ? snapshot.messageCount : fallbackConversation.length;
+  const conversationId = snapshot ? snapshot.conversationId : getCurrentConversationId();
+  const signature = `${conversationId || ''}:${messageCount}:${text.length}`;
+  const currentPlan = await new Promise((resolve) => {
+    chrome.storage.local.get('currentPlan', (data) => resolve(data.currentPlan || 'free'));
+  });
+
+  if (
+    now - window.CONTEXT_MEASUREMENT.lastMeasureTime < window.CONTEXT_MEASUREMENT.measureInterval &&
+    signature === window.CONTEXT_MEASUREMENT.signatureAtLastMeasure &&
+    window.CONTEXT_MEASUREMENT.lastResult
+  ) {
+    return {
+      ...window.CONTEXT_MEASUREMENT.lastResult,
+      contextLimit: window.CONTEXT_MEASUREMENT.contextLimits[currentPlan],
+    };
+  }
+
+  if (window.CONTEXT_MEASUREMENT.inProgress) {
+    return (
+      window.CONTEXT_MEASUREMENT.lastResult || {
+        chars: text.length,
+        tokens: 0,
+        text: '',
+        pending: true,
+      }
+    );
+  }
+
+  window.CONTEXT_MEASUREMENT.inProgress = true;
+  try {
+    const tokenResult = await requestPageTokenCount(
+      text,
+      'gpt-4o',
+      'CALCULATE_CONTEXT_SIZE',
+      'CHATGPT_TOOL_CONTEXT_TOKENS',
+    );
+    const result = {
+      chars: tokenResult.chars,
+      tokens: tokenResult.tokens,
+      text,
+      success: tokenResult.success,
+      contextLimit: window.CONTEXT_MEASUREMENT.contextLimits[currentPlan],
+      messageCount,
+      source: snapshot ? 'conversation_api' : 'rendered_dom_fallback',
+    };
+    window.CONTEXT_MEASUREMENT.lastResult = result;
+    window.CONTEXT_MEASUREMENT.lastMeasureTime = now;
+    window.CONTEXT_MEASUREMENT.signatureAtLastMeasure = signature;
+    return result;
+  } finally {
+    window.CONTEXT_MEASUREMENT.inProgress = false;
+  }
 }

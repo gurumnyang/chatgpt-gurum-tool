@@ -113,18 +113,6 @@ function sendTabMessage(tabId, message) {
   });
 }
 
-function sendRuntimeMessage(message) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve(null);
-        return;
-      }
-      resolve(response || null);
-    });
-  });
-}
-
 async function notifyActiveChatTab(message) {
   const tab = await getActiveChatTab();
   if (!tab) return false;
@@ -163,13 +151,14 @@ async function renderUsageInternal() {
   // storage에서 데이터 불러오기
   const data = await new Promise((resolve) => {
     chrome.storage.local.get(
-      ['usageCounts', 'limits', 'deepResearch', 'currentPlan', 'popupTheme'],
+      ['usageCounts', 'limits', 'deepResearch', 'imageGeneration', 'currentPlan', 'popupTheme'],
       resolve,
     );
   });
   const usageCounts = data.usageCounts || {};
   const limits = data.limits || {};
   const deepResearch = data.deepResearch || { remaining: '-', resetAt: null, total: '-' };
+  const imageGeneration = data.imageGeneration || { remaining: '-', resetAt: null };
   const plan = data.currentPlan || 'free';
 
   // 컨텍스트 모드 토글 요소/힌트
@@ -228,8 +217,15 @@ async function renderUsageInternal() {
   // 모델별 사용량 리스트
   const modelUsageList = document.getElementById('modelUsageList');
   modelUsageList.replaceChildren();
-  // gpt-5 계열 우선 정렬 (그 외는 알파벳 정렬)
-  const gpt5Rank = { 'gpt-5': 0, 'gpt-5-thinking': 1, 'gpt-5-pro': 2 };
+  // 현재 모델 계열 순서: 5.5 Instant → 5.6 → 5.3 Instant → 5.5
+  const gpt5Rank = {
+    'gpt-5-5-instant': 0,
+    'gpt-5-6-sol': 10,
+    'gpt-5-6-pro': 11,
+    'gpt-5-3-instant': 20,
+    'gpt-5-5-thinking': 30,
+    'gpt-5-5-pro': 31,
+  };
   const sortedModels = Object.keys(limits)
     .filter((m) => m !== 'deep-research')
     .sort((a, b) => {
@@ -304,6 +300,11 @@ async function renderUsageInternal() {
     appendTextElement(div, 'span', 'model-name', displayName);
     const modelUsage = appendTextElement(div, 'span', 'model-usage', '');
     appendTextElement(modelUsage, 'span', `usage-count ${barClass}`.trim(), used);
+    if (type === 'dynamic') {
+      appendTextElement(modelUsage, 'span', 'usage-limit', ` (${t('limit_label_dynamic')})`);
+      modelUsageList.appendChild(div);
+      return;
+    }
     appendTextElement(
       modelUsage,
       'span',
@@ -324,8 +325,10 @@ async function renderUsageInternal() {
   // Deep Research 남은 횟수
   const drCount = document.getElementById('deepResearchCount');
   let drClass = '';
-  if (deepResearch.remaining !== '-' && deepResearch.total && deepResearch.total !== '-') {
-    const drPercent = deepResearch.total ? deepResearch.remaining / deepResearch.total : 1;
+  const drRemainingValue = Number(deepResearch.remaining);
+  const drTotalValue = Number(deepResearch.total);
+  if (Number.isFinite(drRemainingValue) && Number.isFinite(drTotalValue) && drTotalValue > 0) {
+    const drPercent = drRemainingValue / drTotalValue;
     if (drPercent <= 0.05) drClass = 'danger';
     else if (drPercent <= 0.2) drClass = 'warning';
   }
@@ -345,7 +348,18 @@ async function renderUsageInternal() {
       ? `${t('reset_until_prefix')} ${formatCountdown(deepResearch.resetAt)}`
       : '',
   );
-  appendTextElement(drCount, 'div', 'data-source', t('refresh_to_update'));
+  // Image Generation 남은 횟수
+  const imageGenerationCount = document.getElementById('imageGenerationCount');
+  imageGenerationCount.replaceChildren();
+  appendTextElement(imageGenerationCount, 'span', 'remaining-count', imageGeneration.remaining);
+  appendTextElement(
+    imageGenerationCount,
+    'span',
+    'reset-time',
+    imageGeneration.resetAt
+      ? `${t('reset_until_prefix')} ${formatCountdown(imageGeneration.resetAt)}`
+      : '',
+  );
   // 컨텍스트 크기(토큰/문자)
   const contextDiv = document.getElementById('contextSize');
   const size = await getContextSize();
@@ -357,8 +371,8 @@ async function renderUsageInternal() {
   // 컨텍스트 한도: 모드에 따라 계산
   let contextLimit;
   if (isInferenceMode) {
-    // 추론 모델(o3, o4-mini, gpt-5-thinking): 현재는 플랜 무관 196K
-    const inf = { free: 196000, plus: 196000, team: 196000, pro: 196000 };
+    // Free/Business는 Plus와 동일한 추론 컨텍스트로 추정한다.
+    const inf = { free: 256000, go: 256000, plus: 256000, team: 256000, pro: 400000 };
     contextLimit = inf[plan] || 196000;
     if (modeLabelEl) modeLabelEl.textContent = t('current_mode_inference');
   } else {
@@ -366,12 +380,13 @@ async function renderUsageInternal() {
     contextLimit =
       size.contextLimit ||
       {
-        free: 8192, // 8K
-        plus: 32768, // 32K
+        free: 27000, // 27K
+        go: 54000, // 54K
+        plus: 54000, // 54K
         team: 32768, // 32K
-        pro: 131072, // 128K
+        pro: 128000, // 128K
       }[plan] ||
-      8192;
+      27000;
     if (modeLabelEl) modeLabelEl.textContent = t('current_mode_base');
   }
 
@@ -603,8 +618,7 @@ planSelect.addEventListener('change', () => {
   // 플랜 변경 요청 후 딥리서치 정보 및 UI 업데이트
   chrome.runtime.sendMessage({ type: 'changePlan', plan }, () => {
     if (chrome.runtime.lastError) return;
-    // 딥리서치 resetAt 갱신을 위해 먼저 content에서 정보 가져옴
-    refreshUsage({ syncDeepResearch: true });
+    refreshUsage();
   });
 });
 
@@ -655,53 +669,25 @@ if (refreshRemoteBtn) {
   });
 }
 
-// Deep Research 최신화 요청 후 background의 기존 저장 계약으로 전달
-async function updateDeepResearchFromContent() {
-  const tab = await getActiveChatTab();
-  if (!tab) return false;
-
-  const response = await sendTabMessage(tab.id, {
-    type: 'checkDeepResearchRemaining',
-  });
-  if (!response || response.remaining == null || !Number.isFinite(Number(response.remaining))) {
-    return false;
-  }
-
-  const remaining = Number(response.remaining);
-  const resetCandidate = response.resetTime ?? response.resetAt ?? response.reset_after;
-  const resetTimestamp = resetCandidate == null ? null : new Date(resetCandidate).getTime();
-  const message = {
-    type: 'deepResearchRemaining',
-    remaining,
-  };
-  if (Number.isFinite(resetTimestamp)) message.resetTime = resetTimestamp;
-
-  const saved = await sendRuntimeMessage(message);
-  return saved && saved.status === 'ok';
-}
-
 let refreshUsagePromise = null;
-let deepResearchSyncRequested = false;
 
-function refreshUsage({ syncDeepResearch = false } = {}) {
-  if (syncDeepResearch) deepResearchSyncRequested = true;
+function refreshUsage() {
   if (refreshUsagePromise) return refreshUsagePromise;
-  refreshUsagePromise = (async () => {
-    do {
-      const shouldSyncDeepResearch = deepResearchSyncRequested;
-      deepResearchSyncRequested = false;
-      if (shouldSyncDeepResearch) await updateDeepResearchFromContent();
-      await renderUsage();
-    } while (deepResearchSyncRequested);
-  })().finally(() => {
+  refreshUsagePromise = renderUsage().finally(() => {
     refreshUsagePromise = null;
   });
   return refreshUsagePromise;
 }
 
-// 최초 렌더링 및 1분마다 페이지 유래 Deep Research 정보 동기화
-refreshUsage({ syncDeepResearch: true });
-setInterval(() => refreshUsage({ syncDeepResearch: true }), 60 * 1000);
+// API bridge가 저장한 usage/limits/기능별 잔여량을 source of truth로 렌더링한다.
+refreshUsage();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  const renderKeys = ['usageCounts', 'limits', 'deepResearch', 'imageGeneration', 'currentPlan'];
+  if (renderKeys.some((key) => Object.prototype.hasOwnProperty.call(changes, key))) {
+    refreshUsage();
+  }
+});
 
 // 컨텍스트 모드 토글 저장/복원
 const contextModeToggle = document.getElementById('contextModeToggle');
@@ -713,7 +699,7 @@ if (contextModeToggle) {
     contextModeToggle.checked = saved === 'inference';
     if (contextModeLabel) {
       contextModeLabel.textContent =
-        saved === 'inference' ? '현재 모드: 추론 (196K)' : '현재 모드: 베이스';
+        saved === 'inference' ? t('current_mode_inference') : t('current_mode_base');
     }
     // 초기 렌더 갱신
     renderUsage();
@@ -724,7 +710,7 @@ if (contextModeToggle) {
     chrome.storage.local.set({ contextMode: mode }, () => {
       if (contextModeLabel) {
         contextModeLabel.textContent =
-          mode === 'inference' ? '현재 모드: 추론 (196K)' : '현재 모드: 베이스';
+          mode === 'inference' ? t('current_mode_inference') : t('current_mode_base');
       }
       renderUsage();
     });
