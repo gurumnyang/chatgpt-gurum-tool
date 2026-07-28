@@ -28,3 +28,7 @@ coverage/
 # Misc
 *.local
 .env
+
+# Local research artifacts
+htmlraw/
+research/
